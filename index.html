@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ремонт телефонів</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Система ремонту телефонів</h1>
+    
+    <!-- Статус авторизації -->
+    <div class="status" id="auth-status">
+        Ви не авторизовані
+    </div>
+    
+    <!-- Навігація -->
+    <div class="nav">
+        <button onclick="showSection('auth')">Авторизація</button>
+        <button onclick="showSection('repairs')">Ремонти</button>
+        <button onclick="showSection('orders')">Замовлення</button>
+        <button onclick="showSection('inventory')">Інвентар</button>
+    </div>
+    
+    <!-- Розділ авторизації -->
+    <div id="auth-section" class="container">
+        <h2>Авторизація</h2>
+        <div>
+            <label for="login">Логін: </label>
+            <input type="text" id="login" placeholder="Введіть логін">
+            <label for="password">Пароль: </label>
+            <input type="password" id="password" placeholder="Введіть пароль">
+            <button onclick="login()">Увійти</button>
+            <button onclick="register()">Зареєструватися</button>
+        </div>
+    </div>
+    
+    <!-- Розділ ремонтів -->
+    <div id="repairs-section" class="container hidden">
+        <h2>Ремонти</h2>
+        <button onclick="getRepairs()">Отримати список ремонтів</button>
+        
+        <div class="repair-form">
+            <h3>Новий ремонт</h3>
+            <label for="phone-model">Модель телефону: </label>
+            <input type="text" id="phone-model" placeholder="Модель">
+            <label for="issue">Проблема: </label>
+            <input type="text" id="issue" placeholder="Опишіть проблему">
+            <button onclick="createRepair()">Створити заявку на ремонт</button>
+        </div>
+    </div>
+    
+    <!-- Розділ замовлень -->
+    <div id="orders-section" class="container hidden">
+        <h2>Замовлення</h2>
+        <button onclick="getOrders()">Отримати список замовлень</button>
+        
+        <div class="order-form">
+            <h3>Нове замовлення</h3>
+            <label for="component">Компонент: </label>
+            <input type="text" id="component" placeholder="Вкажіть компонент">
+            <label for="quantity">Кількість: </label>
+            <input type="number" id="quantity" min="1" value="1">
+            <button onclick="createOrder()">Створити замовлення</button>
+        </div>
+    </div>
+    
+    <!-- Розділ інвентаря -->
+    <div id="inventory-section" class="container hidden">
+        <h2>Інвентар</h2>
+        <button onclick="getComponents()">Отримати список компонентів</button>
+        <button onclick="getPhones()">Отримати список телефонів</button>
+    </div>
+    
+    <!-- Виведення результатів, for debug -->
+    <div class="container">
+        <h2>Результат запиту</h2>
+        <div class="response" id="response">
+            Результат запиту з'явиться тут...
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
