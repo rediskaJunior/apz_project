@@ -7,10 +7,22 @@ from fastapi import FastAPI, HTTPException, Request
 import httpx
 import hazelcast
 import os, sys
+from pydantic import BaseModel
 import uvicorn
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
+
+class InventoryItem(BaseModel):
+    id: str
+    name: str
+    quantity: int
+    available_quantity: int
+    price: float
+    category: str = "General"
+
+class InventoryLogRequest(BaseModel):
+    items: list[InventoryItem]
 
 class InventoryService:
     def __init__(self, cluster_name, queue_name, service_name="inventory-service"):
@@ -36,17 +48,21 @@ class InventoryService:
         missing_parts = {}
 
         for part_id, quantity in requested_parts.items():
-            current_stock = map_.get(part_id) or 0
-            if current_stock >= quantity:
-                map_.put(part_id, current_stock - quantity)
+            item = map_.get(part_id)
+            if item and item["available_quantity"] >= quantity:
+                item["available_quantity"] -= quantity
+                map_.put(part_id, item)
             else:
-                missing_parts[part_id] = quantity - current_stock
-                map_.put(part_id, 0)  # Reserve what you can
+                missing_parts[part_id] = quantity - (item["available_quantity"] if item else 0)
+                if item:
+                    item["available_quantity"] = 0
+                    map_.put(part_id, item)
 
         if missing_parts:
             await self.send_missing_to_order_service(missing_parts)
 
         return {"reserved": requested_parts, "missing": missing_parts}
+
     
     async def send_missing_to_order_service(self, missing_parts: dict):
         if not self.order_parts_service_instances:
@@ -109,6 +125,19 @@ async def health_check():
 
 # -------------- INVENTORY ENDPOINTS ---------------
 @app.post("/log_inventory")
+async def log_inventory(data: InventoryLogRequest):
+    map_ = inventory_service.hz_client.get_map("inventory").blocking()
+    for item in data.items:
+        existing = map_.get(item.id)
+        if existing:
+            existing["quantity"] += item.quantity
+            existing["available_quantity"] += item.available_quantity
+            map_.put(item.id, existing)
+        else:
+            map_.put(item.id, item.dict())
+    return {"status": "inventory updated", "added": [item.id for item in data.items]}
+
+@app.post("/reserve_inventory")
 async def log_inventory(request: Request):
     return await inventory_service.check_and_reserve()
 
