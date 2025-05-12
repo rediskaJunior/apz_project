@@ -22,15 +22,18 @@ class APIService:
         self.inventory_service_instances = []
         self.orders_service_instances = []
         self.repairs_service_instances = []
+        self.order_parts_service_instances = []
 
     async def fetch_service_addresses(self):
         self.inventory_service_instances = await fetch_instances("inventory-service")
         self.orders_service_instances = await fetch_instances("orders-service")
         self.repairs_service_instances = await fetch_instances("repairs-service")
+        self.order_parts_service_instances = await fetch_instances("order-parts-service")
 
         print(self.inventory_service_instances)
         print(self.orders_service_instances)
         print(self.repairs_service_instances)
+        print(self.order_parts_service_instances)
     
     async def get_alive_instance(self, instances):
         for instance in instances:
@@ -53,6 +56,8 @@ class APIService:
             instances = self.orders_service_instances
         elif service_name == "repairs":
             instances = self.repairs_service_instances
+        elif service_name == "order-parts":
+            instances = self.order_parts_service_instances
         else:
             raise HTTPException(status_code=400, detail="Unknown service")
 
@@ -141,6 +146,11 @@ async def get_inventory(request: Request):
 @app.get("/inventory/{product_id}")
 async def get_inventory_item(product_id: str, request: Request):
     return await api_service.proxy_request("inventory", "GET", f"/inventory/{product_id}", request)
+
+# -------------- ORDER PARTS ENDPOINTS ---------------
+@app.get("/order-parts")
+async def log_inventory(request: Request):
+    return await api_service.proxy_request("order-parts", "GET", "/order-parts", request)
 
 # -------------- STARTUP ---------------
 if __name__ == "__main__":

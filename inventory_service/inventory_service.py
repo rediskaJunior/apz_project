@@ -38,7 +38,7 @@ class InventoryService:
         print(order_parts_instances)
 
         if order_parts_instances:
-            self.inventory_service_instances = order_parts_instances
+            self.order_parts_service_instances = order_parts_instances
             return True
 
         return False
@@ -72,7 +72,8 @@ class InventoryService:
         url = f"{self.order_parts_service_instances[0]}/order"
         async with httpx.AsyncClient(timeout=5.0) as client:
             try:
-                resp = await client.post(url, json={"parts": missing_parts})
+                payload = {"parts": [{"id": k, "quantity": v} for k, v in missing_parts.items()]}
+                resp = await client.post(url, json=payload)
                 if resp.status_code == 200:
                     print("Order service acknowledged missing parts")
                 else:
@@ -138,8 +139,11 @@ async def log_inventory(data: InventoryLogRequest):
     return {"status": "inventory updated", "added": [item.id for item in data.items]}
 
 @app.post("/reserve_inventory")
-async def log_inventory(request: Request):
-    return await inventory_service.check_and_reserve()
+async def reserve_inventory(request: Request):
+    data = await request.json()
+    requested_parts = data.get("parts", {})
+    return await inventory_service.check_and_reserve(requested_parts)
+
 
 @app.get("/inventory")
 async def get_inventory(request: Request):
