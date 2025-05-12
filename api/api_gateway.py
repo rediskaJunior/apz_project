@@ -27,7 +27,7 @@ class APIService:
     async def fetch_service_addresses(self):
         self.inventory_service_instances = await fetch_instances("inventory-service")
         self.orders_service_instances = await fetch_instances("orders-service")
-        self.repairs_service_instances = await fetch_instances("repairs-service")
+        self.repairs_service_instances = await fetch_instances("repair-service")
         self.order_parts_service_instances = await fetch_instances("order-parts-service")
 
         print(self.inventory_service_instances)
@@ -91,8 +91,8 @@ api_service = None
 @app.on_event("startup")
 async def startup_event():
     global api_service
-    cluster_name_ = await get_consul_kv("cluster_name")
-    queue_name_ = await get_consul_kv("queue_name")
+    cluster_name_ = await get_consul_kv("cluster-name")
+    queue_name_ = await get_consul_kv("queue-name")
     api_service = APIService(cluster_name=cluster_name_, queue_name = queue_name_)
     port = int(os.environ["APP_PORT"])
     await register_service(api_service.service_name, api_service.service_id, "localhost", port)

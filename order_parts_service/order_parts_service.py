@@ -22,14 +22,15 @@ class OrderPartsRequest(BaseModel):
     parts: list[OrderPart]
 
 class OrderPartsService:
-    def __init__(self, cluster_name, queue_name, service_name="order-parts-service"):
+    def __init__(self, cluster_name, queue_name, map_name, service_name="order-parts-service"):
         self.hz_client = hazelcast.HazelcastClient(cluster_name=cluster_name)
         self.service_name = service_name
+        self.map_name = map_name
         self.msg_queue = self.hz_client.get_queue(queue_name)
         self.service_id = f"{service_name}-{os.getpid()}"
 
     async def get_order_parts(self):
-        map_ = self.hz_client.get_map("order-parts").blocking()
+        map_ = self.hz_client.get_map(self.map_name).blocking()
         all_keys = map_.key_set()
         order_parts = {key: map_.get(key) for key in all_keys}
         return order_parts
@@ -47,9 +48,10 @@ order_parts_service = None
 @app.on_event("startup")
 async def startup_event():
     global order_parts_service
-    cluster_name_ = await get_consul_kv("cluster_name")
-    queue_name_ = await get_consul_kv("queue_name")
-    order_parts_service = OrderPartsService(cluster_name=cluster_name_, queue_name = queue_name_)
+    cluster_name_ = await get_consul_kv("cluster-name")
+    queue_name_ = await get_consul_kv("queue-name")
+    map_name_ = await get_consul_kv("order-parts-map")
+    order_parts_service = OrderPartsService(cluster_name=cluster_name_, queue_name = queue_name_, map_name=map_name_)
     port = int(os.environ["APP_PORT"])
     await register_service(order_parts_service.service_name, order_parts_service.service_id, "localhost", port)
 
@@ -57,7 +59,7 @@ async def startup_event():
 async def shutdown():
     await deregister_service(order_parts_service.service_id)
     order_parts_service.shutdown()
-    print("Inventory Service shutdown")
+    print("Order Parts Service shutdown")
 
 @app.get("/health")
 async def health_check():
@@ -67,7 +69,7 @@ async def health_check():
 @app.post("/order")
 async def add_order(data: OrderPartsRequest):
     print(data)
-    map_ = order_parts_service.hz_client.get_map("order-parts").blocking()
+    map_ = order_parts_service.hz_client.get_map(order_parts_service.map_name).blocking()
     for item in data.parts:
         existing = map_.get(item.id)
         if existing:

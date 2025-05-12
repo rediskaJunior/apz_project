@@ -22,15 +22,16 @@ class OrderPartsRequest(BaseModel):
     orders: Dict[str, int]
 
 class OrderService:
-    def __init__(self, cluster_name, queue_name, service_name="orders-service"):
+    def __init__(self, cluster_name, queue_name, map_name, service_name="orders-service"):
         self.hz_client = hazelcast.HazelcastClient(cluster_name=cluster_name)
         self.service_name = service_name
+        self.map_name = map_name
         self.msg_queue = self.hz_client.get_queue(queue_name)
         self.service_id = f"{service_name}-{os.getpid()}"
         self.inventory_service_instances = []
 
     async def get_orders(self):
-        map_ = self.hz_client.get_map("orders").blocking()
+        map_ = self.hz_client.get_map(self.map_name).blocking()
         all_keys = map_.key_set()
         orders = {key: map_.get(key) for key in all_keys}
         return orders
@@ -76,9 +77,10 @@ order_service = None
 @app.on_event("startup")
 async def startup_event():
     global order_service
-    cluster_name_ = await get_consul_kv("cluster_name")
-    queue_name_ = await get_consul_kv("queue_name")
-    order_service = OrderService(cluster_name=cluster_name_, queue_name = queue_name_)
+    cluster_name_ = await get_consul_kv("cluster-name")
+    queue_name_ = await get_consul_kv("queue-name")
+    map_name_ = await get_consul_kv("order-map")
+    order_service = OrderService(cluster_name=cluster_name_, queue_name = queue_name_, map_name=map_name_)
     port = int(os.environ["APP_PORT"])
     await register_service(order_service.service_name, order_service.service_id, "localhost", port)
     await order_service.fetch_service_addresses()
@@ -100,7 +102,7 @@ async def add_order(data: OrderPartsRequest):
     if not reserved:
         raise HTTPException(status_code=400, detail="Could not reserve all parts")
 
-    map_ = order_service.hz_client.get_map("orders").blocking()
+    map_ = order_service.hz_client.get_map(order_service.map_name).blocking()
     for item in parts:
         map_.put(item.id, item.dict())
 

@@ -22,15 +22,16 @@ class OrderPartsRequest(BaseModel):
     orders: Dict[str, int]
 
 class RepairService:
-    def __init__(self, cluster_name, queue_name, service_name="repair-service"):
+    def __init__(self, cluster_name, queue_name, map_name, service_name="repair-service"):
         self.hz_client = hazelcast.HazelcastClient(cluster_name=cluster_name)
         self.service_name = service_name
+        self.map_name = map_name
         self.msg_queue = self.hz_client.get_queue(queue_name)
         self.service_id = f"{service_name}-{os.getpid()}"
         self.inventory_service_instances = []
 
     async def get_repairs(self):
-        map_ = self.hz_client.get_map("repairs").blocking()
+        map_ = self.hz_client.get_map(self.map_name).blocking()
         all_keys = map_.key_set()
         orders = {key: map_.get(key) for key in all_keys}
         return orders
@@ -76,11 +77,17 @@ repair_service = None
 @app.on_event("startup")
 async def startup_event():
     global repair_service
-    cluster_name_ = await get_consul_kv("cluster_name")
-    queue_name_ = await get_consul_kv("queue_name")
-    repair_service = RepairService(cluster_name=cluster_name_, queue_name = queue_name_)
+    print("cluster")
+    cluster_name_ = await get_consul_kv("cluster-name")
+    print("queue")
+    queue_name_ = await get_consul_kv("queue-name")
+    print("map")
+    map_name_ = await get_consul_kv("repairs-map")
+    repair_service = RepairService(cluster_name=cluster_name_, queue_name = queue_name_, map_name=map_name_)
     port = int(os.environ["APP_PORT"])
+    print("register")
     await register_service(repair_service.service_name, repair_service.service_id, "localhost", port)
+    print("fetch addresses")
     await repair_service.fetch_service_addresses()
 @app.on_event("shutdown")
 async def shutdown():
@@ -94,17 +101,17 @@ async def health_check():
 
 # -------------- ORDER PARTS ENDPOINTS ---------------
 @app.post("/add_repair")
-async def add_order(data: OrderPartsRequest):
+async def add_repair(data: OrderPartsRequest):
     parts = [OrderPart(id=k, quantity=v) for k, v in data.orders.items()]
     reserved = await repair_service.reserve_parts(parts)
     if not reserved:
         raise HTTPException(status_code=400, detail="Could not reserve all parts")
 
-    map_ = repair_service.hz_client.get_map("orders").blocking()
+    map_ = repair_service.hz_client.get_map(repair_service.map_name).blocking()
     for item in parts:
         map_.put(item.id, item.dict())
 
-    return {"status": "order placed", "added": [item.id for item in parts]}
+    return {"status": "reapir logged", "added": [item.id for item in parts]}
 
 @app.get("/repairs")
 async def get_repairs(request: Request):

@@ -25,9 +25,10 @@ class InventoryLogRequest(BaseModel):
     items: list[InventoryItem]
 
 class InventoryService:
-    def __init__(self, cluster_name, queue_name, service_name="inventory-service"):
+    def __init__(self, cluster_name, queue_name, map_name, service_name="inventory-service"):
         self.hz_client = hazelcast.HazelcastClient(cluster_name=cluster_name)
         self.service_name = service_name
+        self.map_name = map_name
         self.msg_queue = self.hz_client.get_queue(queue_name)
         self.service_id = f"{service_name}-{os.getpid()}"
         self.order_parts_service_instances = []
@@ -44,7 +45,7 @@ class InventoryService:
         return False
     
     async def check_and_reserve(self, requested_parts: dict):
-        map_ = self.hz_client.get_map("inventory").blocking()
+        map_ = self.hz_client.get_map(self.map_name).blocking()
         missing_parts = {}
 
         for part_id, quantity in requested_parts.items():
@@ -85,12 +86,12 @@ class InventoryService:
                 print("Failed to send missing parts:", e)
 
     async def get_inventory(self):
-        map_ = self.hz_client.get_map("inventory").blocking()
+        map_ = self.hz_client.get_map(self.map_name).blocking()
         all_keys = map_.key_set()
         inventory = {key: map_.get(key) for key in all_keys}
         return inventory
     async def get_inventory_instance(self, product_id: str):
-        map_ = self.hz_client.get_map("inventory").blocking()
+        map_ = self.hz_client.get_map(self.map_name).blocking()
         quantity = map_.get(product_id)
         if quantity is None:
             raise HTTPException(status_code=404, detail="Product not found")
@@ -110,9 +111,10 @@ inventory_service = None
 @app.on_event("startup")
 async def startup_event():
     global inventory_service
-    cluster_name_ = await get_consul_kv("cluster_name")
-    queue_name_ = await get_consul_kv("queue_name")
-    inventory_service = InventoryService(cluster_name=cluster_name_, queue_name = queue_name_)
+    cluster_name_ = await get_consul_kv("cluster-name")
+    queue_name_ = await get_consul_kv("queue-name")
+    map_name_ = await get_consul_kv("inventory-map")
+    inventory_service = InventoryService(cluster_name=cluster_name_, queue_name = queue_name_, map_name=map_name_)
     port = int(os.environ["APP_PORT"])
     await register_service(inventory_service.service_name, inventory_service.service_id, "localhost", port)
     await inventory_service.fetch_service_addresses()
@@ -130,7 +132,7 @@ async def health_check():
 # -------------- INVENTORY ENDPOINTS ---------------
 @app.post("/log_inventory")
 async def log_inventory(data: InventoryLogRequest):
-    map_ = inventory_service.hz_client.get_map("inventory").blocking()
+    map_ = inventory_service.hz_client.get_map(inventory_service.map_name).blocking()
     for item in data.items:
         existing = map_.get(item.id)
         if existing:
