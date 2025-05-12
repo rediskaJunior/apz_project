@@ -1,194 +1,122 @@
-# orders_service/app.py
-from flask import Flask, jsonify, request
-import requests
-import uuid
-from datetime import datetime
+#hz-start
+#consul agent -dev
+# python .\inventory_service\inventory_service.py --port 8006
 
-app = Flask(__name__)
+import argparse
+from typing import Dict
+from fastapi import FastAPI, HTTPException, Request
+import httpx
+import hazelcast
+import os, sys
+from pydantic import BaseModel
+import uvicorn
 
-# Імітація БД замовлень
-orders = {}
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
 
-# Статуси замовлень
-ORDER_STATUSES = {
-    "PENDING": "Очікує обробки",
-    "PROCESSING": "В обробці",
-    "WAITING_PARTS": "Очікує запчастини",
-    "SHIPPED": "Відправлено",
-    "DELIVERED": "Доставлено",
-    "CANCELLED": "Скасовано"
-}
+class OrderPart(BaseModel):
+    id: str
+    quantity: int
 
-# Конфігурація сервісів
-INVENTORY_SERVICE_URL = "http://localhost:5001"  # URL сервісу інвентаризації
+class OrderPartsRequest(BaseModel):
+    orders: Dict[str, int]
 
-@app.route("/orders", methods=["POST"])
-def create_order():
-    data = request.json
-    user_id = data.get("user_id")
-    items = data.get("items", [])  # Список телефонів/компонентів для замовлення
-    shipping_address = data.get("shipping_address", {})
-    
-    # Створюємо запис про замовлення
-    order_id = str(uuid.uuid4())
-    order = {
-        "id": order_id,
-        "user_id": user_id,
-        "items": items,
-        "shipping_address": shipping_address,
-        "status": "PENDING",
-        "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat(),
-        "total_price": calculate_total_price(items),
-        "order_history": [
-            {
-                "status": "PENDING",
-                "timestamp": datetime.now().isoformat(),
-                "note": "Замовлення створено"
-            }
-        ]
-    }
-    
-    # Збереження в "БД"
-    orders[order_id] = order
-    
-    # Перевіряємо наявність товарів в інвентарі
-    try:
-        # Розділяємо замовлення на телефони та компоненти
-        phones = [item for item in items if item.get("type") == "phone"]
-        components = [item for item in items if item.get("type") == "component"]
-        
-        # Виклик Inventory Service для резервування товарів
-        response = requests.post(
-            f"{INVENTORY_SERVICE_URL}/reserve",
-            json={
-                "order_id": order_id,
-                "phones": [{"id": p["item_id"], "quantity": p["quantity"]} for p in phones],
-                "components": [{"id": c["item_id"], "quantity": c["quantity"]} for c in components]
-            }
-        )
-        
-        reservation_result = response.json()
-        
-        if reservation_result["success"]:
-            # Всі товари в наявності
-            orders[order_id]["status"] = "PROCESSING"
-            orders[order_id]["order_history"].append({
-                "status": "PROCESSING",
-                "timestamp": datetime.now().isoformat(),
-                "note": "Товари зарезервовано, замовлення в обробці"
-            })
-        else:
-            # Деякі товари відсутні, необхідно замовити
-            orders[order_id]["status"] = "WAITING_PARTS"
-            orders[order_id]["missing_items"] = reservation_result["missing_items"]
-            orders[order_id]["order_history"].append({
-                "status": "WAITING_PARTS",
-                "timestamp": datetime.now().isoformat(),
-                "note": "Очікуємо надходження відсутніх товарів"
-            })
-    
-    except Exception as e:
-        # Помилка комунікації з сервісом інвентаризації
-        orders[order_id]["order_history"].append({
-            "status": "PENDING",
-            "timestamp": datetime.now().isoformat(),
-            "note": f"Помилка перевірки наявності: {str(e)}"
-        })
-    
-    return jsonify(orders[order_id])
+class OrderService:
+    def __init__(self, cluster_name, queue_name, service_name="order-service"):
+        self.hz_client = hazelcast.HazelcastClient(cluster_name=cluster_name)
+        self.service_name = service_name
+        self.msg_queue = self.hz_client.get_queue(queue_name)
+        self.service_id = f"{service_name}-{os.getpid()}"
+        self.inventory_service_instances = []
 
-@app.route("/orders/<order_id>", methods=["GET"])
-def get_order(order_id):
-    if order_id not in orders:
-        return jsonify({"error": "Замовлення не знайдено"}), 404
+    async def get_orders(self):
+        map_ = self.hz_client.get_map("orders").blocking()
+        all_keys = map_.key_set()
+        orders = {key: map_.get(key) for key in all_keys}
+        return orders
     
-    return jsonify(orders[order_id])
+    async def reserve_parts(self, items: list[OrderPart]):
+        if not self.inventory_service_instances:
+            print("Inventory service not available")
+            return False
 
-@app.route("/orders/<order_id>/cancel", methods=["POST"])
-def cancel_order(order_id):
-    if order_id not in orders:
-        return jsonify({"error": "Замовлення не знайдено"}), 404
-    
-    # Перевіряємо, чи можна скасувати замовлення
-    current_status = orders[order_id]["status"]
-    if current_status in ["SHIPPED", "DELIVERED"]:
-        return jsonify({
-            "error": "Неможливо скасувати замовлення в статусі " + ORDER_STATUSES[current_status]
-        }), 400
-    
-    # Оновлюємо статус замовлення
-    orders[order_id]["status"] = "CANCELLED"
-    orders[order_id]["updated_at"] = datetime.now().isoformat()
-    
-    # Додаємо запис в історію
-    orders[order_id]["order_history"].append({
-        "status": "CANCELLED",
-        "timestamp": datetime.now().isoformat(),
-        "note": "Замовлення скасовано"
-    })
-    
-    # Звільняємо зарезервовані товари
-    try:
-        requests.post(
-            f"{INVENTORY_SERVICE_URL}/release",
-            json={"order_id": order_id}
-        )
-    except Exception:
-        # Ігноруємо помилки комунікації з сервісом інвентаризації
-        pass
-    
-    return jsonify(orders[order_id])
+        url = f"{self.inventory_service_instances[0]}/reserve_inventory"
+        requested_parts = {
+            item.id: item.quantity  # Part ID is the key, and quantity is the value
+            for item in items
+        }
 
-@app.route("/orders/<order_id>/status", methods=["PUT"])
-def update_order_status(order_id):
-    if order_id not in orders:
-        return jsonify({"error": "Замовлення не знайдено"}), 404
-    
-    data = request.json
-    new_status = data.get("status")
-    note = data.get("note", "")
-    
-    # Перевіряємо, чи існує такий статус
-    if new_status not in ORDER_STATUSES:
-        return jsonify({"error": "Недійсний статус замовлення"}), 400
-    
-    # Оновлюємо статус замовлення
-    orders[order_id]["status"] = new_status
-    orders[order_id]["updated_at"] = datetime.now().isoformat()
-    
-    # Додаємо запис в історію
-    orders[order_id]["order_history"].append({
-        "status": new_status,
-        "timestamp": datetime.now().isoformat(),
-        "note": note or f"Статус змінено на {ORDER_STATUSES[new_status]}"
-    })
-    
-    return jsonify(orders[order_id])
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            try:
+                resp = await client.post(url, json={"items": requested_parts})
+                if resp.status_code == 200:
+                    print("Reserved parts in inventory")
+                    return True
+                else:
+                    print("Inventory service error:", resp.status_code, resp.text)
+            except Exception as e:
+                print("Failed to reserve parts:", e)
+        return False
 
-@app.route("/orders", methods=["GET"])
-def get_orders():
-    user_id = request.args.get("user_id")
-    status = request.args.get("status")
     
-    result = []
-    for order in orders.values():
-        # Фільтруємо за ID користувача, якщо вказано
-        if user_id and str(order["user_id"]) != user_id:
-            continue
-        
-        # Фільтруємо за статусом, якщо вказано
-        if status and order["status"] != status:
-            continue
-        
-        result.append(order)
-    
-    return jsonify(result)
+    async def fetch_service_addresses(self):
+        self.inventory_service_instances = await fetch_instances("inventory-service")
+        print(self.inventory_service_instances)
 
-def calculate_total_price(items):
-    # У реальній системі тут був би запит до бази даних або сервісу цін
-    # Для спрощення, повертаємо заглушку
-    return sum(item.get("price", 0) * item.get("quantity", 1) for item in items)
+    def shutdown(self):
+        self.hz_client.shutdown()
+        print("Hazelcast client shutdown")
 
+
+app = FastAPI()
+order_service = None
+
+# -------------- DEFAULT ENDPOINTS ---------------
+
+@app.on_event("startup")
+async def startup_event():
+    global order_service
+    cluster_name_ = await get_consul_kv("cluster_name")
+    queue_name_ = await get_consul_kv("queue_name")
+    order_service = OrderService(cluster_name=cluster_name_, queue_name = queue_name_)
+    port = int(os.environ["APP_PORT"])
+    await register_service(order_service.service_name, order_service.service_id, "localhost", port)
+    await order_service.fetch_service_addresses()
+@app.on_event("shutdown")
+async def shutdown():
+    await deregister_service(order_service.service_id)
+    order_service.shutdown()
+    print("Orders Service shutdown")
+
+@app.get("/health")
+async def health_check():
+    return {"status": "OK"}
+
+# -------------- ORDER PARTS ENDPOINTS ---------------
+@app.post("/add_order")
+async def add_order(data: OrderPartsRequest):
+    parts = [OrderPart(id=k, quantity=v) for k, v in data.orders.items()]
+    reserved = await order_service.reserve_parts(parts)
+    if not reserved:
+        raise HTTPException(status_code=400, detail="Could not reserve all parts")
+
+    # If reserved, write to order map
+    map_ = order_service.hz_client.get_map("orders").blocking()
+    for item in parts:
+        map_.put(item.id, item.dict())
+
+    return {"status": "order placed", "added": [item.id for item in parts]}
+
+@app.get("/orders")
+async def get_orders(request: Request):
+    return await order_service.get_orders()
+
+# -------------- STARTUP ---------------
 if __name__ == "__main__":
-    app.run(debug=True, port=5003)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
+    os.environ["APP_PORT"] = str(args.port)
+
+    uvicorn.run("orders_service:app", host="0.0.0.0", port=args.port, reload=False)

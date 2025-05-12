@@ -49,6 +49,7 @@ class InventoryService:
 
         for part_id, quantity in requested_parts.items():
             item = map_.get(part_id)
+            print(item)
             if item and item["available_quantity"] >= quantity:
                 item["available_quantity"] -= quantity
                 map_.put(part_id, item)
@@ -59,6 +60,8 @@ class InventoryService:
                     map_.put(part_id, item)
 
         if missing_parts:
+            print("Missing parts detected")
+            print(missing_parts)
             await self.send_missing_to_order_service(missing_parts)
 
         return {"reserved": requested_parts, "missing": missing_parts}
@@ -141,7 +144,9 @@ async def log_inventory(data: InventoryLogRequest):
 @app.post("/reserve_inventory")
 async def reserve_inventory(request: Request):
     data = await request.json()
-    requested_parts = data.get("parts", {})
+    print(data)
+    requested_parts = data.get("items", {})
+    print(requested_parts)
     return await inventory_service.check_and_reserve(requested_parts)
 
 

@@ -65,7 +65,7 @@ async def health_check():
 
 # -------------- ORDER PARTS ENDPOINTS ---------------
 @app.post("/order")
-async def log_inventory(data: OrderPartsRequest):
+async def add_order(data: OrderPartsRequest):
     print(data)
     map_ = order_parts_service.hz_client.get_map("order-parts").blocking()
     for item in data.parts:
