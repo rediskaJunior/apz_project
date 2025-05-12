@@ -1,206 +1,121 @@
-# repair_service/app.py
-from flask import Flask, jsonify, request
-import requests
-import uuid
-from datetime import datetime
+#hz-start
+#consul agent -dev
+# python .\inventory_service\inventory_service.py --port 8006
 
-app = Flask(__name__)
+import argparse
+from typing import Dict
+from fastapi import FastAPI, HTTPException, Request
+import httpx
+import hazelcast
+import os, sys
+from pydantic import BaseModel
+import uvicorn
 
-# Імітація БД ремонтів
-repairs = {}
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
 
-# Статуси ремонтів
-REPAIR_STATUSES = {
-    "PENDING": "In waiting",
-    "DIAGNOSIS": "Under diagnostic",
-    "WAITING_PARTS": "Waiting for parts",
-    "IN_PROGRESS": "In progress",
-    "COMPLETED": "Completed",
-    "CANCELLED": "Cancelled"
-}
+class OrderPart(BaseModel):
+    id: str
+    quantity: int
 
-# Конфігурація сервісів
-INVENTORY_SERVICE_URL = "http://localhost:5001"  # URL сервісу інвентаризації
+class OrderPartsRequest(BaseModel):
+    orders: Dict[str, int]
+
+class RepairService:
+    def __init__(self, cluster_name, queue_name, service_name="repair-service"):
+        self.hz_client = hazelcast.HazelcastClient(cluster_name=cluster_name)
+        self.service_name = service_name
+        self.msg_queue = self.hz_client.get_queue(queue_name)
+        self.service_id = f"{service_name}-{os.getpid()}"
+        self.inventory_service_instances = []
+
+    async def get_repairs(self):
+        map_ = self.hz_client.get_map("repairs").blocking()
+        all_keys = map_.key_set()
+        orders = {key: map_.get(key) for key in all_keys}
+        return orders
+    
+    async def reserve_parts(self, items: list[OrderPart]):
+        if not self.inventory_service_instances:
+            print("Inventory service not available")
+            return False
+
+        url = f"{self.inventory_service_instances[0]}/reserve_inventory"
+        requested_parts = {
+            item.id: item.quantity
+            for item in items
+        }
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            try:
+                resp = await client.post(url, json={"items": requested_parts})
+                if resp.status_code == 200:
+                    print("Reserved parts in inventory")
+                    return True
+                else:
+                    print("Inventory service error:", resp.status_code, resp.text)
+            except Exception as e:
+                print("Failed to reserve parts:", e)
+        return False
+
+    
+    async def fetch_service_addresses(self):
+        self.inventory_service_instances = await fetch_instances("inventory-service")
+        print(self.inventory_service_instances)
+
+    def shutdown(self):
+        self.hz_client.shutdown()
+        print("Hazelcast client shutdown")
 
 
-#function ot create a repair request/note
-@app.route("/repairs", methods=["POST"])
-def create_repair():
-    #CHANGE FOR DRONES
-    data = request.json
-    user_id = data.get("user_id")
-    phone_model = data.get("phone_model")
-    description = data.get("description")
-    
-    
-    # Створюємо запис про ремонт
-    repair_id = str(uuid.uuid4())
-    repair = {
-        "id": repair_id,
-        "user_id": user_id,
-        "phone_model": phone_model,
-        "description": description,
-        "status": "PENDING",
-        "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat(),
-        "estimated_parts": [],
-        "repair_history": [
-            {
-                "status": "PENDING",
-                "timestamp": datetime.now().isoformat(),
-                "note": "Заявка на ремонт створена"
-            }
-        ]
-    }
-    
-    # Збереження в "БД"
-    repairs[repair_id] = repair
-    
-    return jsonify(repair)
+app = FastAPI()
+repair_service = None
 
-#get repair status
-@app.route("/repairs/<repair_id>", methods=["GET"])
-def get_repair(repair_id):
-    if repair_id not in repairs:
-        return jsonify({"error": "Ремонт не знайдено"}), 404
-    
-    return jsonify(repairs[repair_id])
+# -------------- DEFAULT ENDPOINTS ---------------
 
-@app.route("/repairs/<repair_id>/diagnose", methods=["POST"])
-def diagnose_repair(repair_id):
-    if repair_id not in repairs:
-        return jsonify({"error": "Ремонт не знайдено"}), 404
-    
-    data = request.json
-    required_parts = data.get("required_parts", [])
-    diagnosis = data.get("diagnosis", "")
-    
-    # Оновлюємо статус ремонту
-    repairs[repair_id]["status"] = "DIAGNOSIS"
-    repairs[repair_id]["diagnosis"] = diagnosis
-    repairs[repair_id]["estimated_parts"] = required_parts
-    repairs[repair_id]["updated_at"] = datetime.now().isoformat()
-    
-    # Додаємо запис в історію
-    repairs[repair_id]["repair_history"].append({
-        "status": "DIAGNOSIS",
-        "timestamp": datetime.now().isoformat(),
-        "note": "Діагностика проведена"
-    })
-    
-    # Перевіряємо наявність запчастин в інвентарі
-    if required_parts:
-        try:
-            # Виклик Inventory Service для резервування запчастин
-            response = requests.post(
-                f"{INVENTORY_SERVICE_URL}/reserve",
-                json={
-                    "order_id": f"repair_{repair_id}",
-                    "components": [{"id": p["component_id"], "quantity": p["quantity"]} for p in required_parts]
-                }
-            )
-            
-            reservation_result = response.json()
-            
-            if reservation_result["success"]:
-                # Всі запчастини в наявності
-                repairs[repair_id]["status"] = "IN_PROGRESS"
-                repairs[repair_id]["repair_history"].append({
-                    "status": "IN_PROGRESS",
-                    "timestamp": datetime.now().isoformat(),
-                    "note": "Запчастини зарезервовано, ремонт розпочато"
-                })
-            else:
-                # Деякі запчастини відсутні, необхідно замовити
-                repairs[repair_id]["status"] = "WAITING_PARTS"
-                repairs[repair_id]["missing_parts"] = reservation_result["missing_items"]
-                repairs[repair_id]["repair_history"].append({
-                    "status": "WAITING_PARTS",
-                    "timestamp": datetime.now().isoformat(),
-                    "note": "Очікуємо надходження відсутніх запчастин"
-                })
-                
-                # Тут би мав бути запит до Parts Order Service для замовлення відсутніх запчастин
-        
-        except Exception as e:
-            # Помилка комунікації з сервісом інвентаризації
-            repairs[repair_id]["status"] = "PENDING"
-            repairs[repair_id]["repair_history"].append({
-                "status": "PENDING",
-                "timestamp": datetime.now().isoformat(),
-                "note": f"Помилка перевірки запчастин: {str(e)}"
-            })
-    
-    return jsonify(repairs[repair_id])
+@app.on_event("startup")
+async def startup_event():
+    global repair_service
+    cluster_name_ = await get_consul_kv("cluster_name")
+    queue_name_ = await get_consul_kv("queue_name")
+    repair_service = RepairService(cluster_name=cluster_name_, queue_name = queue_name_)
+    port = int(os.environ["APP_PORT"])
+    await register_service(repair_service.service_name, repair_service.service_id, "localhost", port)
+    await repair_service.fetch_service_addresses()
+@app.on_event("shutdown")
+async def shutdown():
+    await deregister_service(repair_service.service_id)
+    repair_service.shutdown()
+    print("Repairs Service shutdown")
 
-#change status of repair to complete
-@app.route("/repairs/<repair_id>/complete", methods=["POST"])
-def complete_repair(repair_id):
-    if repair_id not in repairs:
-        return jsonify({"error": "Ремонт не знайдено"}), 404
-    
-    # Оновлюємо статус ремонту
-    repairs[repair_id]["status"] = "COMPLETED"
-    repairs[repair_id]["updated_at"] = datetime.now().isoformat()
-    repairs[repair_id]["completed_at"] = datetime.now().isoformat()
-    
-    # Додаємо запис в історію
-    repairs[repair_id]["repair_history"].append({
-        "status": "COMPLETED",
-        "timestamp": datetime.now().isoformat(),
-        "note": "Ремонт завершено"
-    })
-    
-    return jsonify(repairs[repair_id])
+@app.get("/health")
+async def health_check():
+    return {"status": "OK"}
 
-#cancel repair
-@app.route("/repairs/<repair_id>/cancel", methods=["POST"])
-def cancel_repair(repair_id):
-    if repair_id not in repairs:
-        return jsonify({"error": "Ремонт не знайдено"}), 404
-    
-    # Оновлюємо статус ремонту
-    repairs[repair_id]["status"] = "CANCELLED"
-    repairs[repair_id]["updated_at"] = datetime.now().isoformat()
-    
-    # Додаємо запис в історію
-    repairs[repair_id]["repair_history"].append({
-        "status": "CANCELLED",
-        "timestamp": datetime.now().isoformat(),
-        "note": "Ремонт скасовано"
-    })
-    
-    # Звільняємо зарезервовані запчастини
-    try:
-        requests.post(
-            f"{INVENTORY_SERVICE_URL}/release",
-            json={"order_id": f"repair_{repair_id}"}
-        )
-    except Exception:
-        # Ігноруємо помилки комунікації з сервісом інвентаризації
-        pass
-    
-    return jsonify(repairs[repair_id])
+# -------------- ORDER PARTS ENDPOINTS ---------------
+@app.post("/add_repair")
+async def add_order(data: OrderPartsRequest):
+    parts = [OrderPart(id=k, quantity=v) for k, v in data.orders.items()]
+    reserved = await repair_service.reserve_parts(parts)
+    if not reserved:
+        raise HTTPException(status_code=400, detail="Could not reserve all parts")
 
-#get all user repairs
-@app.route("/repairs", methods=["GET"])
-def get_repairs():
-    user_id = request.args.get("user_id")
-    status = request.args.get("status")
-    
-    result = []
-    for repair in repairs.values():
-        # Фільтруємо за ID користувача, якщо вказано
-        if user_id and str(repair["user_id"]) != user_id:
-            continue
-        
-        # Фільтруємо за статусом, якщо вказано
-        if status and repair["status"] != status:
-            continue
-        
-        result.append(repair)
-    
-    return jsonify(result)
+    map_ = repair_service.hz_client.get_map("orders").blocking()
+    for item in parts:
+        map_.put(item.id, item.dict())
 
+    return {"status": "order placed", "added": [item.id for item in parts]}
+
+@app.get("/repairs")
+async def get_repairs(request: Request):
+    return await repair_service.get_repairs()
+
+# -------------- STARTUP ---------------
 if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
+    os.environ["APP_PORT"] = str(args.port)
+
+    uvicorn.run("repair_service:app", host="0.0.0.0", port=args.port, reload=False)

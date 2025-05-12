@@ -22,7 +22,7 @@ class OrderPartsRequest(BaseModel):
     orders: Dict[str, int]
 
 class OrderService:
-    def __init__(self, cluster_name, queue_name, service_name="order-service"):
+    def __init__(self, cluster_name, queue_name, service_name="orders-service"):
         self.hz_client = hazelcast.HazelcastClient(cluster_name=cluster_name)
         self.service_name = service_name
         self.msg_queue = self.hz_client.get_queue(queue_name)
@@ -42,7 +42,7 @@ class OrderService:
 
         url = f"{self.inventory_service_instances[0]}/reserve_inventory"
         requested_parts = {
-            item.id: item.quantity  # Part ID is the key, and quantity is the value
+            item.id: item.quantity
             for item in items
         }
 
@@ -100,7 +100,6 @@ async def add_order(data: OrderPartsRequest):
     if not reserved:
         raise HTTPException(status_code=400, detail="Could not reserve all parts")
 
-    # If reserved, write to order map
     map_ = order_service.hz_client.get_map("orders").blocking()
     for item in parts:
         map_.put(item.id, item.dict())

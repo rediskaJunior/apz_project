@@ -2,7 +2,7 @@ import httpx
 import asyncio
 
 async def test_reserve_inventory():
-    url = "http://localhost:8025/add_order"
+    url = "http://localhost:8035/add_repair"
     headers = {"Content-Type": "application/json"}
     request_data = {
         "orders": {
