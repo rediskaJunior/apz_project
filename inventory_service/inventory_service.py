@@ -1,155 +1,131 @@
-# inventory_service/app.py
-from flask import Flask, jsonify, request
+#hz-start
+#consul agent -dev
+# python .\inventory_service\inventory_service.py --port 8006
 
-app = Flask(__name__)
+import argparse
+from fastapi import FastAPI, HTTPException, Request
+import httpx
+import hazelcast
+import os, sys
+import uvicorn
 
-# Імітація інвентарю в пам'яті
-inventory = {
-    "components": {
-        1: {"id": 1, "name": "Екран iPhone 12", "quantity": 15, "type": "display"},
-        2: {"id": 2, "name": "Батарея Samsung S21", "quantity": 20, "type": "battery"},
-        3: {"id": 3, "name": "Корпус Xiaomi Mi 11", "quantity": 8, "type": "case"},
-        4: {"id": 4, "name": "Камера iPhone 13", "quantity": 10, "type": "camera"}
-    },
-    "phones": {
-        1: {"id": 1, "name": "iPhone 13", "quantity": 5, "price": 30000},
-        2: {"id": 2, "name": "Samsung S21", "quantity": 3, "price": 25000},
-        3: {"id": 3, "name": "Xiaomi Mi 11", "quantity": 7, "price": 20000}
-    }
-}
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
 
-# Історія резервувань
-reserved_items = {}
+class InventoryService:
+    def __init__(self, cluster_name, queue_name, service_name="inventory-service"):
+        self.hz_client = hazelcast.HazelcastClient(cluster_name=cluster_name)
+        self.service_name = service_name
+        self.msg_queue = self.hz_client.get_queue(queue_name)
+        self.service_id = f"{service_name}-{os.getpid()}"
+        self.order_parts_service_instances = []
 
-#function to get all components
-@app.route("/components", methods=["GET"])
-def get_components():
-    return jsonify(list(inventory["components"].values()))
+    async def fetch_service_addresses(self):
+        order_parts_instances = await fetch_instances("order-parts-service")
 
-#function to get component by id
-@app.route("/components/<int:component_id>", methods=["GET"])
-def get_component(component_id):
-    component = inventory["components"].get(component_id)
-    if not component:
-        return jsonify({"error": "Component not found"}), 404
-    return jsonify(component)
+        print(order_parts_instances)
 
-#get all phones
-@app.route("/phones", methods=["GET"])
-def get_phones():
-    return jsonify(list(inventory["phones"].values()))
+        if order_parts_instances:
+            self.inventory_service_instances = order_parts_instances
+            return True
 
-#get a specific phone item
-@app.route("/phones/<int:phone_id>", methods=["GET"])
-def get_phone(phone_id):
-    phone = inventory["phones"].get(phone_id)
-    if not phone:
-        return jsonify({"error": "Телефон не знайдено"}), 404
-    return jsonify(phone)
-
-#reserve an item that is ordered
-@app.route("/reserve", methods=["POST"])
-def reserve_parts():
-    # Ендпоінт для резервування частин (для ремонту або замовлення)
-    data = request.json
-    order_id = data.get("order_id")
-    components = data.get("components", [])
-    phones = data.get("phones", [])
+        return False
     
-    missing_items = []
-    reserved = {"components": [], "phones": []}
+    async def check_and_reserve(self, requested_parts: dict):
+        map_ = self.hz_client.get_map("inventory").blocking()
+        missing_parts = {}
 
-    #CHANGE TO DRONE PARTS AND ETC
-    
-    # Перевірка наявності компонентів
-    for comp in components:
-        comp_id = comp.get("id")
-        quantity = comp.get("quantity", 1)
-        
-        if comp_id in inventory["components"]:
-            if inventory["components"][comp_id]["quantity"] >= quantity:
-                # Резервуємо компонент
-                inventory["components"][comp_id]["quantity"] -= quantity
-                reserved["components"].append({
-                    "id": comp_id,
-                    "quantity": quantity
-                })
+        for part_id, quantity in requested_parts.items():
+            current_stock = map_.get(part_id) or 0
+            if current_stock >= quantity:
+                map_.put(part_id, current_stock - quantity)
             else:
-                missing_items.append({
-                    "type": "component",
-                    "id": comp_id,
-                    "requested": quantity,
-                    "available": inventory["components"][comp_id]["quantity"]
-                })
-        else:
-            missing_items.append({
-                "type": "component",
-                "id": comp_id,
-                "requested": quantity,
-                "available": 0
-            })
-    
-    # Перевірка наявності телефонів
-    for phone in phones:
-        phone_id = phone.get("id")
-        quantity = phone.get("quantity", 1)
-        
-        if phone_id in inventory["phones"]:
-            if inventory["phones"][phone_id]["quantity"] >= quantity:
-                # Резервуємо телефон
-                inventory["phones"][phone_id]["quantity"] -= quantity
-                reserved["phones"].append({
-                    "id": phone_id,
-                    "quantity": quantity
-                })
-            else:
-                missing_items.append({
-                    "type": "phone",
-                    "id": phone_id,
-                    "requested": quantity,
-                    "available": inventory["phones"][phone_id]["quantity"]
-                })
-        else:
-            missing_items.append({
-                "type": "phone",
-                "id": phone_id,
-                "requested": quantity,
-                "available": 0
-            })
-    
-    # Зберігаємо резервування
-    if order_id:
-        reserved_items[order_id] = reserved
-    
-    return jsonify({
-        "success": len(missing_items) == 0,
-        "reserved": reserved,
-        "missing_items": missing_items,
-        "order_id": order_id
-    })
+                missing_parts[part_id] = quantity - current_stock
+                map_.put(part_id, 0)  # Reserve what you can
 
-#function to cancel the reservation
-@app.route("/release", methods=["POST"])
-def release_reservation():
-    # Відміна резервування (якщо замовлення скасовано)
-    data = request.json
-    order_id = data.get("order_id")
-    
-    if order_id not in reserved_items:
-        return jsonify({"error": "Резервування не знайдено"}), 404
-    
-    # Повертаємо компоненти в інвентар
-    for comp in reserved_items[order_id]["components"]:
-        inventory["components"][comp["id"]]["quantity"] += comp["quantity"]
-    
-    # Повертаємо телефони в інвентар
-    for phone in reserved_items[order_id]["phones"]:
-        inventory["phones"][phone["id"]]["quantity"] += phone["quantity"]
-    
-    # Видаляємо резервування
-    del reserved_items[order_id]
-    
-    return jsonify({"success": True})
+        if missing_parts:
+            await self.send_missing_to_order_service(missing_parts)
 
+        return {"reserved": requested_parts, "missing": missing_parts}
+    
+    async def send_missing_to_order_service(self, missing_parts: dict):
+        if not self.order_parts_service_instances:
+            print("Order-parts service not available")
+            return
+
+        url = f"{self.order_parts_service_instances[0]}/order"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            try:
+                resp = await client.post(url, json={"parts": missing_parts})
+                if resp.status_code == 200:
+                    print("Order service acknowledged missing parts")
+                else:
+                    print("Order service responded with error:", resp.status_code)
+            except Exception as e:
+                print("Failed to send missing parts:", e)
+
+    async def get_inventory(self):
+        map_ = self.hz_client.get_map("inventory").blocking()
+        all_keys = map_.key_set()
+        inventory = {key: map_.get(key) for key in all_keys}
+        return inventory
+    async def get_inventory_instance(self, product_id: str):
+        map_ = self.hz_client.get_map("inventory").blocking()
+        quantity = map_.get(product_id)
+        if quantity is None:
+            raise HTTPException(status_code=404, detail="Product not found")
+        return {product_id: quantity}
+
+
+    def shutdown(self):
+        self.hz_client.shutdown()
+        print("Hazelcast client shutdown")
+
+
+app = FastAPI()
+inventory_service = None
+
+# -------------- DEFAULT ENDPOINTS ---------------
+
+@app.on_event("startup")
+async def startup_event():
+    global inventory_service
+    cluster_name_ = await get_consul_kv("cluster_name")
+    queue_name_ = await get_consul_kv("queue_name")
+    inventory_service = InventoryService(cluster_name=cluster_name_, queue_name = queue_name_)
+    port = int(os.environ["APP_PORT"])
+    await register_service(inventory_service.service_name, inventory_service.service_id, "localhost", port)
+    await inventory_service.fetch_service_addresses()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await deregister_service(inventory_service.service_id)
+    inventory_service.shutdown()
+    print("Inventory Service shutdown")
+
+@app.get("/health")
+async def health_check():
+    return {"status": "OK"}
+
+# -------------- INVENTORY ENDPOINTS ---------------
+@app.post("/log_inventory")
+async def log_inventory(request: Request):
+    return await inventory_service.check_and_reserve()
+
+@app.get("/inventory")
+async def get_inventory(request: Request):
+    return await inventory_service.get_inventory()
+
+@app.get("/inventory/{product_id}")
+async def get_inventory_item(product_id: str, request: Request):
+    return await inventory_service.get_inventory_instance(product_id)
+
+# -------------- STARTUP ---------------
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
+    os.environ["APP_PORT"] = str(args.port)
+
+    uvicorn.run("inventory_service:app", host="0.0.0.0", port=args.port, reload=False)

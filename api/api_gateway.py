@@ -1,173 +1,153 @@
-# api_gateway/app.py
-from flask import Flask, jsonify, request
-import requests
-from functools import wraps
-from flask_cors import CORS  # Додаємо підтримку CORS
+#hz-start
+#consul agent -dev
+# python .\api\api_gateway.py --port 8005
 
-app = Flask(__name__)
-CORS(app)  # Дозволяємо CORS для всіх маршрутів
+import argparse
+from fastapi import FastAPI, HTTPException, Request
+import httpx
+import hazelcast
+import os, sys
+import uvicorn
 
-# Конфігурація сервісів
-SERVICE_URLS = {
-    "auth": "http://localhost:5000",
-    "inventory": "http://localhost:5001",
-    "repair": "http://localhost:5002",
-    "orders": "http://localhost:5003"
-}
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
 
-# Заголовок з токеном
-TOKEN_HEADER = "Authorization"
+class APIService:
+    def __init__(self, cluster_name, queue_name, service_name="api-service"):
+        self.hz_client = hazelcast.HazelcastClient(cluster_name=cluster_name)
+        self.service_name = service_name
+        self.msg_queue = self.hz_client.get_queue(queue_name)
+        self.service_id = f"{service_name}-{os.getpid()}"
 
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = None
-        
-        # Отримуємо токен з заголовків
-        if TOKEN_HEADER in request.headers:
-            token = request.headers[TOKEN_HEADER].split(" ")[-1]
-        
-        if not token:
-            return jsonify({"error": "Необхідний токен авторизації"}), 401
-        
-        # Валідуємо токен через Auth Service
-        try:
-            response = requests.post(
-                f"{SERVICE_URLS['auth']}/validate",
-                json={"token": token}
-            )
-            
-            if not response.json().get("valid", False):
-                return jsonify({"error": "Недійсний токен авторизації"}), 401
-            
-            # Додаємо ID користувача до запиту
-            request.user_id = response.json().get("user_id")
-            
-        except Exception as e:
-            return jsonify({"error": f"Помилка перевірки токена: {str(e)}"}), 500
-        
-        return f(*args, **kwargs)
+        self.inventory_service_instances = []
+        self.orders_service_instances = []
+        self.repairs_service_instances = []
+
+    async def fetch_service_addresses(self):
+        self.inventory_service_instances = await fetch_instances("inventory-service")
+        self.orders_service_instances = await fetch_instances("orders-service")
+        self.repairs_service_instances = await fetch_instances("repairs-service")
+
+        print(self.inventory_service_instances)
+        print(self.orders_service_instances)
+        print(self.repairs_service_instances)
     
-    return decorated
+    async def get_alive_instance(self, instances):
+        for instance in instances:
+            try:
+                async with httpx.AsyncClient(timeout=1.0) as client:
+                    health_url = f"{instance}/health"
+                    resp = await client.get(health_url)
+                    print(f"In get alive from {health_url}, got response {resp}")
+                    if resp.status_code == 200:
+                        return instance
+            except Exception:
+                continue
+        return None
 
-# Маршрути аутентифікації (без перевірки токена)
-@app.route("/api/auth/login", methods=["POST"])
-def login():
-    # Отримуємо дані логіну з запиту
-    data = request.json or {}
-    print(data)
-    return proxy_request(SERVICE_URLS["auth"], "/login", data=data)
+    async def proxy_request(self, service_name: str, method: str, path: str, request: Request):
+        if service_name == "inventory":
+            instances = self.inventory_service_instances
+            print(f"Looking for inventory: {instances}")
+        elif service_name == "orders":
+            instances = self.orders_service_instances
+        elif service_name == "repairs":
+            instances = self.repairs_service_instances
+        else:
+            raise HTTPException(status_code=400, detail="Unknown service")
 
-@app.route("/api/auth/register", methods=["POST"])
-def register():
-    # Отримуємо дані реєстрації з запиту
-    data = request.json or {}
-    print(data)
-    return proxy_request(SERVICE_URLS["auth"], "/register", data=data)
+        if not instances:
+            print("No instances, fetching new")
+            await self.fetch_service_addresses()
 
-# Маршрути для роботи з ремонтами
-@app.route("/api/repairs", methods=["GET"])
-@token_required
-def get_repairs():
-    # Додаємо user_id як параметр запиту
-    params = dict(request.args)
-    params["user_id"] = request.user_id
-    
-    return proxy_request(SERVICE_URLS["repair"], "/repairs", params=params)
+        instance_url = await self.get_alive_instance(instances)
+        if not instance_url:
+            raise HTTPException(status_code=503, detail=f"No alive instances for {service_name}-service")
 
-@app.route("/api/repairs", methods=["POST"])
-@token_required
-def create_repair():
-    # Додаємо user_id до тіла запиту
-    data = request.json or {}
-    data["user_id"] = request.user_id
-    
-    return proxy_request(SERVICE_URLS["repair"], "/repairs", data=data)
+        url = f"{instance_url}{path}"
+        headers = dict(request.headers)
+        body = await request.body()
 
-@app.route("/api/repairs/<repair_id>", methods=["GET"])
-@token_required
-def get_repair(repair_id):
-    return proxy_request(SERVICE_URLS["repair"], f"/repairs/{repair_id}")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.request(method, url, headers=headers, content=body)
 
-@app.route("/api/repairs/<repair_id>/diagnose", methods=["POST"])
-@token_required
-def diagnose_repair(repair_id):
-    data = request.json or {}
-    return proxy_request(SERVICE_URLS["repair"], f"/repairs/{repair_id}/diagnose", data=data)
+        return response.json() if 'application/json' in response.headers.get("content-type", "") else response.text
 
-@app.route("/api/repairs/<repair_id>/complete", methods=["POST"])
-@token_required
-def complete_repair(repair_id):
-    data = request.json or {}
-    return proxy_request(SERVICE_URLS["repair"], f"/repairs/{repair_id}/complete", data=data)
+    def shutdown(self):
+        self.hz_client.shutdown()
+        print("Hazelcast client shutdown")
 
-@app.route("/api/repairs/<repair_id>/cancel", methods=["POST"])
-@token_required
-def cancel_repair(repair_id):
-    data = request.json or {}
-    return proxy_request(SERVICE_URLS["repair"], f"/repairs/{repair_id}/cancel", data=data)
 
-# Маршрути для роботи з замовленнями
-@app.route("/api/orders", methods=["GET"])
-@token_required
-def get_orders():
-    # Додаємо user_id як параметр запиту
-    params = dict(request.args)
-    params["user_id"] = request.user_id
-    
-    return proxy_request(SERVICE_URLS["orders"], "/orders", params=params)
+app = FastAPI()
+api_service = None
 
-@app.route("/api/orders", methods=["POST"])
-@token_required
-def create_order():
-    # Додаємо user_id до тіла запиту
-    data = request.json or {}
-    data["user_id"] = request.user_id
-    
-    return proxy_request(SERVICE_URLS["orders"], "/orders", data=data)
+# -------------- DEFAULT ENDPOINTS ---------------
 
-@app.route("/api/orders/<order_id>", methods=["GET"])
-@token_required
-def get_order(order_id):
-    return proxy_request(SERVICE_URLS["orders"], f"/orders/{order_id}")
+@app.on_event("startup")
+async def startup_event():
+    global api_service
+    cluster_name_ = await get_consul_kv("cluster_name")
+    queue_name_ = await get_consul_kv("queue_name")
+    api_service = APIService(cluster_name=cluster_name_, queue_name = queue_name_)
+    port = int(os.environ["APP_PORT"])
+    await register_service(api_service.service_name, api_service.service_id, "localhost", port)
+    await api_service.fetch_service_addresses()
 
-@app.route("/api/orders/<order_id>/cancel", methods=["POST"])
-@token_required
-def cancel_order(order_id):
-    data = request.json or {}
-    return proxy_request(SERVICE_URLS["orders"], f"/orders/{order_id}/cancel", data=data)
+@app.on_event("shutdown")
+async def shutdown():
+    await deregister_service(api_service.service_id)
+    api_service.shutdown()
+    print("API Service shutdown")
 
-# Маршрути для роботи з інвентарем
-@app.route("/api/inventory/components", methods=["GET"])
-@token_required
-def get_components():
-    return proxy_request(SERVICE_URLS["inventory"], "/components")
+@app.get("/health")
+async def health_check():
+    return {"status": "OK"}
 
-@app.route("/api/inventory/phones", methods=["GET"])
-@token_required
-def get_phones():
-    return proxy_request(SERVICE_URLS["inventory"], "/phones")
+# -------------- ORDER ENDPOINTS ---------------
+@app.post("/log_order")
+async def log_order(request: Request):
+    return await api_service.proxy_request("orders", "POST", "/log_order", request)
 
-# Функція для перенаправлення запитів до відповідних сервісів
-def proxy_request(service_url, endpoint, params=None, data=None):
-    url = f"{service_url}{endpoint}"
-    
-    try:
-        # Перенаправляємо всі заголовки, окрім хоста
-        headers = {k: v for k, v in request.headers.items() if k.lower() != "host"}
-        
-        # Виконуємо запит з тим же методом, що і оригінальний запит
-        response = requests.request(
-            method=request.method,
-            url=url,
-            headers=headers,
-            params=params,
-            json=data
-        )
-        print(response.json(), response.status_code)
-        return jsonify(response.json()), response.status_code
-    except Exception as e:
-        return jsonify({"error": f"Помилка при перенаправленні запиту: {str(e)}"}), 500
+@app.get("/orders")
+async def get_orders(request: Request):
+    return await api_service.proxy_request("orders", "GET", "/orders", request)
 
+@app.get("/orders/{order_id}")
+async def get_order(order_id: str, request: Request):
+    return await api_service.proxy_request("orders", "GET", f"/orders/{order_id}", request)
+
+# -------------- REPAIR ENDPOINTS ---------------
+@app.post("/log_repair")
+async def log_repair(request: Request):
+    return await api_service.proxy_request("repairs", "POST", "/log_repair", request)
+
+@app.get("/repairs")
+async def get_repairs(request: Request):
+    return await api_service.proxy_request("repairs", "GET", "/repairs", request)
+
+@app.get("/repairs/{repair_id}")
+async def get_repair(repair_id: str, request: Request):
+    return await api_service.proxy_request("repairs", "GET", f"/repairs/{repair_id}", request)
+
+# -------------- INVENTORY ENDPOINTS ---------------
+@app.post("/log_inventory")
+async def log_inventory(request: Request):
+    return await api_service.proxy_request("inventory", "POST", "/log_inventory", request)
+
+@app.get("/inventory")
+async def get_inventory(request: Request):
+    return await api_service.proxy_request("inventory", "GET", "/inventory", request)
+
+@app.get("/inventory/{product_id}")
+async def get_inventory_item(product_id: str, request: Request):
+    return await api_service.proxy_request("inventory", "GET", f"/inventory/{product_id}", request)
+
+# -------------- STARTUP ---------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5010, debug=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
+    os.environ["APP_PORT"] = str(args.port)
+
+    uvicorn.run("api_gateway:app", host="0.0.0.0", port=args.port, reload=False)
