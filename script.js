@@ -31,39 +31,57 @@ function showSection(section) {
     document.getElementById(`${section}-section`).classList.remove('hidden');
 }
 
-// Функція для виконання запитів до API
-async function fetchAPI(endpoint, method = 'GET', data = null) {
-    const headers = {
-        'Content-Type': 'application/json'
-    };
-    
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-    
-    const options = {
-        method,
-        headers
-    };
-    
-    if (data && (method === 'POST' || method === 'PUT')) {
-        options.body = JSON.stringify(data);
-    }
-    
+const headers = {
+    'Content-Type': 'application/json'
+};
+
+if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+}
+
+// GET request function
+async function getAPI(endpoint) {
     try {
-        const response = await fetch(`${API_URL}${endpoint}`, options);
+        const response = await fetch(`${API_URL}${endpoint}`, {
+            method: 'GET',
+            headers
+        });
+
         const result = await response.json();
-        
+
         if (!response.ok) {
-            throw new Error(result.error || 'Помилка запиту');
+            throw new Error(result.error || 'GET request error');
         }
-        
+
         return result;
     } catch (error) {
-        console.error('Помилка API:', error);
+        console.error('GET API Error:', error);
         throw error;
     }
 }
+
+// POST request function
+async function postAPI(endpoint, data) {
+    try {
+        const response = await fetch(`${API_URL}${endpoint}`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'POST request error');
+        }
+
+        return result;
+    } catch (error) {
+        console.error('POST API Error:', error);
+        throw error;
+    }
+}
+
 
 // Авторизація - login
 async function login() {
@@ -78,7 +96,7 @@ async function login() {
     
     try {
         // send POST request to api gateway
-        const data = await fetchAPI('/auth/login', 'POST', { login, password });
+        const data = await postAPI('/auth/login', { login, password });
         token = data.token; // store token data (here will be JWT)
         localStorage.setItem('token', token);
         updateAuthStatus(); // update authentification status
@@ -100,7 +118,7 @@ async function register() {
     
     try {
         // send POST request to api gateway
-        const data = await fetchAPI('/auth/register', 'POST', { login, password });
+        const data = await postAPI('/auth/register', { login, password });
         showResponse('Успішно зареєстровано. Тепер можете увійти.');
     } catch (error) {
         showResponse(`Помилка реєстрації: ${error.message}`, true);
@@ -110,25 +128,53 @@ async function register() {
 // Отримання ремонтів
 async function getRepairs() {
     try {
-        const data = await fetchAPI('/repairs');
+        const data = await getAPI('/repairs');
         showResponse(data);
     } catch (error) {
         showResponse(`Помилка отримання ремонтів: ${error.message}`, true);
     }
 }
+function addRepairPart() {
+    const container = document.getElementById('repair-parts-container');
+    const partDiv = document.createElement('div');
+    partDiv.className = 'repair-part';
+    partDiv.innerHTML = `
+        <input class="part-id" placeholder="ID деталі">
+        <input class="part-qty" type="number" placeholder="Кількість" min="1" value="1">
+    `;
+    container.appendChild(partDiv);
+}
+
 
 // Створення ремонту
 async function createRepair() {
-    const phoneModel = document.getElementById('phone-model').value;
-    const issue = document.getElementById('issue').value;
-    
+    const phoneModel = document.getElementById('phone-model').value.trim();
+    const issue = document.getElementById('issue').value.trim();
+
+    const partElements = document.querySelectorAll('.repair-part');
+    const orders = {};
+
+    partElements.forEach(partEl => {
+        const partId = partEl.querySelector('.part-id').value.trim();
+        const quantity = parseInt(partEl.querySelector('.part-qty').value.trim(), 10);
+
+        if (partId && quantity && quantity > 0) {
+            orders[partId] = quantity;
+        }
+    });
+
     if (!phoneModel || !issue) {
-        showResponse('Помилка: Заповніть всі поля', true);
+        showResponse('Помилка: Заповніть модель телефону та проблему', true);
         return;
     }
-    
+
+    if (Object.keys(orders).length === 0) {
+        showResponse('Помилка: Додайте хоча б одну деталь з кількістю', true);
+        return;
+    }
+
     try {
-        const data = await fetchAPI('/repairs', 'POST', { phoneModel, issue });
+        const data = await postAPI('/add_repair', { orders });
         showResponse(data);
     } catch (error) {
         showResponse(`Помилка створення ремонту: ${error.message}`, true);
@@ -138,7 +184,7 @@ async function createRepair() {
 // Отримання замовлень
 async function getOrders() {
     try {
-        const data = await fetchAPI('/orders');
+        const data = await getAPI('/orders');
         showResponse(data);
     } catch (error) {
         showResponse(`Помилка отримання замовлень: ${error.message}`, true);
@@ -147,16 +193,15 @@ async function getOrders() {
 
 // Створення замовлення
 async function createOrder() {
-    const component = document.getElementById('component').value;
-    const quantity = document.getElementById('quantity').value;
-    
-    if (!component || !quantity) {
-        showResponse('Помилка: Заповніть всі поля', true);
-        return;
-    }
-    
+   const requestData = {
+        orders: {
+            "part-123": 2,
+            "part-456": 1
+        }
+    };
+
     try {
-        const data = await fetchAPI('/orders', 'POST', { component, quantity });
+        const data = await postAPI('/add_order', requestData);
         showResponse(data);
     } catch (error) {
         showResponse(`Помилка створення замовлення: ${error.message}`, true);
@@ -166,7 +211,7 @@ async function createOrder() {
 // Отримання компонентів
 async function getComponents() {
     try {
-        const data = await fetchAPI('/inventory/components');
+        const data = await getAPI('/inventory/components');
         showResponse(data);
     } catch (error) {
         showResponse(`Помилка отримання компонентів: ${error.message}`, true);
@@ -176,7 +221,7 @@ async function getComponents() {
 // Отримання телефонів
 async function getPhones() {
     try {
-        const data = await fetchAPI('/inventory/phones');
+        const data = await getAPI('/inventory/phones');
         showResponse(data);
     } catch (error) {
         showResponse(`Помилка отримання телефонів: ${error.message}`, true);

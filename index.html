@@ -46,9 +46,20 @@
             <input type="text" id="phone-model" placeholder="Модель">
             <label for="issue">Проблема: </label>
             <input type="text" id="issue" placeholder="Опишіть проблему">
+
+            <!-- Динамічні частини -->
+            <div id="repair-parts-container">
+                <div class="repair-part">
+                    <input class="part-id" placeholder="ID деталі">
+                    <input class="part-qty" type="number" placeholder="Кількість" min="1" value="1">
+                </div>
+            </div>
+            <button onclick="addRepairPart()">+ Додати деталь</button>
+
             <button onclick="createRepair()">Створити заявку на ремонт</button>
         </div>
     </div>
+
     
     <!-- Розділ замовлень -->
     <div id="orders-section" class="container hidden">
