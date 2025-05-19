@@ -10,6 +10,7 @@ import hazelcast
 import os, sys
 from pydantic import BaseModel
 import uvicorn
+from fastapi.responses import JSONResponse
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
@@ -115,7 +116,8 @@ async def add_repair(data: OrderPartsRequest):
 
 @app.get("/repairs")
 async def get_repairs(request: Request):
-    return await repair_service.get_repairs()
+    repairs = await repair_service.get_repairs()
+    return JSONResponse(content=repairs)
 
 # -------------- STARTUP ---------------
 if __name__ == "__main__":

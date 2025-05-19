@@ -36,30 +36,33 @@
     </div>
     
     <!-- Розділ ремонтів -->
-    <div id="repairs-section" class="container hidden">
+    <div id="repairs-section" class="container">
         <h2>Ремонти</h2>
-        <button onclick="getRepairs()">Отримати список ремонтів</button>
+        <button type="button" onclick="getRepairs()">Отримати список ремонтів</button>
         
         <div class="repair-form">
             <h3>Новий ремонт</h3>
-            <label for="phone-model">Модель телефону: </label>
-            <input type="text" id="phone-model" placeholder="Модель">
-            <label for="issue">Проблема: </label>
-            <input type="text" id="issue" placeholder="Опишіть проблему">
+            <div>
+                <label for="phone-model">Модель телефону: </label>
+                <input type="text" id="phone-model" placeholder="Модель">
+            </div>
+            <div>
+                <label for="issue">Проблема: </label>
+                <input type="text" id="issue" placeholder="Опишіть проблему">
+            </div>
 
+            <h4>Деталі для ремонту:</h4>
             <!-- Динамічні частини -->
             <div id="repair-parts-container">
-                <div class="repair-part">
-                    <input class="part-id" placeholder="ID деталі">
-                    <input class="part-qty" type="number" placeholder="Кількість" min="1" value="1">
-                </div>
+                <!-- Parts will be added here dynamically -->
             </div>
-            <button onclick="addRepairPart()">+ Додати деталь</button>
+            <button type="button" onclick="addRepairPart()">+ Додати деталь</button>
 
-            <button onclick="createRepair()">Створити заявку на ремонт</button>
+            <div style="margin-top: 20px;">
+                <button type="button" onclick="createRepair()">Створити заявку на ремонт</button>
+            </div>
         </div>
     </div>
-
     
     <!-- Розділ замовлень -->
     <div id="orders-section" class="container hidden">

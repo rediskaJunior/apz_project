@@ -1,5 +1,6 @@
 // Конфігурація API
 const API_URL = 'http://localhost:5010/api';
+const REP_URL = 'http://localhost:8590';
 let token = localStorage.getItem('token') || '';
 
 // Ініціалізація при завантаженні сторінки
@@ -39,43 +40,87 @@ if (token) {
     headers['Authorization'] = `Bearer ${token}`;
 }
 
-// GET request function
+function showResponse(message, isError = false) {
+    // Create response element if it doesn't exist
+    if (!document.getElementById('response-message')) {
+        const responseDiv = document.createElement('div');
+        responseDiv.id = 'response-message';
+        responseDiv.style.padding = '10px';
+        responseDiv.style.margin = '10px 0';
+        responseDiv.style.borderRadius = '5px';
+        document.body.appendChild(responseDiv);
+    }
+    
+    const messageEl = document.getElementById('response-message');
+    messageEl.textContent = typeof message === 'object' ? JSON.stringify(message, null, 2) : message;
+    messageEl.style.backgroundColor = isError ? '#f2dede' : '#dff0d8';
+    messageEl.style.color = isError ? '#a94442' : '#3c763d';
+    messageEl.style.border = isError ? '1px solid #ebccd1' : '1px solid #d6e9c6';
+    messageEl.style.display = 'block';
+    
+    // Log to console for debugging
+    console.log(isError ? 'ERROR:' : 'SUCCESS:', message);
+}
+
+// Helper function for GET API calls
 async function getAPI(endpoint) {
+    const url = `${REP_URL}${endpoint}`;
+    console.log(`Making GET request to ${url}`);
     try {
-        const response = await fetch(`${API_URL}${endpoint}`, {
+        const response = await fetch(url, {
             method: 'GET',
-            headers
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` })
+            }
         });
 
-        const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(result.error || 'GET request error');
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            const text = await response.text(); // maybe HTML
+            throw new Error("Очікував JSON, але отримав: " + text.slice(0, 100));
         }
 
-        return result;
+        const responseData = await response.json();
+
+        if (!response.ok) {
+            throw new Error(responseData.detail || 'Unknown error occurred');
+        }
+
+        return responseData;
     } catch (error) {
         console.error('GET API Error:', error);
         throw error;
     }
 }
 
-// POST request function
 async function postAPI(endpoint, data) {
+    const url = `${API_URL}${endpoint}`;
+    console.log(`Making POST request to ${url} with data:`, data);
     try {
-        const response = await fetch(`${API_URL}${endpoint}`, {
+        const response = await fetch(url, {
             method: 'POST',
-            headers,
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` })
+            },
             body: JSON.stringify(data)
         });
 
-        const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(result.error || 'POST request error');
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            const text = await response.text(); // maybe HTML
+            throw new Error("Очікував JSON, але отримав: " + text.slice(0, 100));
         }
 
-        return result;
+        const responseData = await response.json();
+
+        if (!response.ok) {
+            throw new Error(responseData.detail || 'Unknown error occurred');
+        }
+
+        return responseData;
     } catch (error) {
         console.error('POST API Error:', error);
         throw error;
@@ -127,6 +172,7 @@ async function register() {
 
 // Отримання ремонтів
 async function getRepairs() {
+    console.log('getRepairs function called');
     try {
         const data = await getAPI('/repairs');
         showResponse(data);
@@ -134,35 +180,163 @@ async function getRepairs() {
         showResponse(`Помилка отримання ремонтів: ${error.message}`, true);
     }
 }
+
 function addRepairPart() {
+    console.log('addRepairPart function called');
     const container = document.getElementById('repair-parts-container');
     const partDiv = document.createElement('div');
     partDiv.className = 'repair-part';
     partDiv.innerHTML = `
         <input class="part-id" placeholder="ID деталі">
         <input class="part-qty" type="number" placeholder="Кількість" min="1" value="1">
+        <button type="button" class="remove-part" onclick="removeRepairPart(this)">✕</button>
     `;
     container.appendChild(partDiv);
 }
 
 
-// Створення ремонту
+
+// Create a repair request
+// Customized JavaScript file to work with your existing Python backend
+
+// Helper function to display response messages
+function showResponse(message, isError = false) {
+    // Create response element if it doesn't exist
+    if (!document.getElementById('response-message')) {
+        const responseDiv = document.createElement('div');
+        responseDiv.id = 'response-message';
+        responseDiv.style.padding = '10px';
+        responseDiv.style.margin = '10px 0';
+        responseDiv.style.borderRadius = '5px';
+        document.body.appendChild(responseDiv);
+    }
+    
+    const messageEl = document.getElementById('response-message');
+    messageEl.textContent = typeof message === 'object' ? JSON.stringify(message, null, 2) : message;
+    messageEl.style.backgroundColor = isError ? '#f2dede' : '#dff0d8';
+    messageEl.style.color = isError ? '#a94442' : '#3c763d';
+    messageEl.style.border = isError ? '1px solid #ebccd1' : '1px solid #d6e9c6';
+    messageEl.style.display = 'block';
+    
+    // Log to console for debugging
+    console.log(isError ? 'ERROR:' : 'SUCCESS:', message);
+}
+
+// Helper function for GET API calls
+async function getAPI(endpoint) {
+    console.log(`Making GET request to ${endpoint}`);
+    try {
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` })
+            }
+        });
+
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            const text = await response.text(); // maybe HTML
+            throw new Error("Очікував JSON, але отримав: " + text.slice(0, 100));
+        }
+
+        const responseData = await response.json();
+
+        if (!response.ok) {
+            throw new Error(responseData.detail || 'Unknown error occurred');
+        }
+
+        return responseData;
+    } catch (error) {
+        console.error('GET API Error:', error);
+        throw error;
+    }
+}
+// Helper function for POST API calls
+async function postAPI(endpoint, data) {
+    console.log(`Making POST request to ${endpoint} with data:`, data);
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        
+        const responseData = await response.json();
+        console.log('Response received:', responseData);
+        
+        if (!response.ok) {
+            throw new Error(responseData.detail || 'Unknown error occurred');
+        }
+        
+        return responseData;
+    } catch (error) {
+        console.error('POST API Error:', error);
+        throw error;
+    }
+}
+
+// Get repairs list
+async function getRepairs() {
+    console.log('getRepairs function called');
+    try {
+        const data = await getAPI('/repairs');
+        showResponse(data);
+    } catch (error) {
+        showResponse(`Помилка отримання ремонтів: ${error.message}`, true);
+    }
+}
+
+// Add a repair part input to the form
+function addRepairPart() {
+    console.log('addRepairPart function called');
+    const container = document.getElementById('repair-parts-container');
+    const partDiv = document.createElement('div');
+    partDiv.className = 'repair-part';
+    partDiv.innerHTML = `
+        <input class="part-id" placeholder="ID деталі">
+        <input class="part-qty" type="number" placeholder="Кількість" min="1" value="1">
+        <button type="button" class="remove-part" onclick="removeRepairPart(this)">✕</button>
+    `;
+    container.appendChild(partDiv);
+}
+
+// Remove a repair part from the form
+function removeRepairPart(button) {
+    console.log('removeRepairPart function called');
+    const partDiv = button.parentElement;
+    partDiv.remove();
+}
+
+// Create a repair request - modified to match your Python backend
 async function createRepair() {
+    console.log('createRepair function called');
+    
     const phoneModel = document.getElementById('phone-model').value.trim();
     const issue = document.getElementById('issue').value.trim();
 
     const partElements = document.querySelectorAll('.repair-part');
     const orders = {};
 
-    partElements.forEach(partEl => {
+    // Collect all parts and quantities
+    partElements.forEach((partEl, index) => {
         const partId = partEl.querySelector('.part-id').value.trim();
-        const quantity = parseInt(partEl.querySelector('.part-qty').value.trim(), 10);
+        const quantityInput = partEl.querySelector('.part-qty').value.trim();
+        const quantity = parseInt(quantityInput, 10);
+
+        console.log(`Part ${index + 1}: ID=${partId}, Quantity=${quantity}`);
 
         if (partId && quantity && quantity > 0) {
             orders[partId] = quantity;
         }
     });
 
+    console.log('Collected orders:', orders);
+
+    // Validate inputs
     if (!phoneModel || !issue) {
         showResponse('Помилка: Заповніть модель телефону та проблему', true);
         return;
@@ -174,12 +348,74 @@ async function createRepair() {
     }
 
     try {
+        // IMPORTANT: Only sending the 'orders' field as that's what your Python backend expects
+        console.log('Sending repair request with orders:', { orders });
+        
         const data = await postAPI('/add_repair', { orders });
+        
+        console.log('Repair request successful:', data);
         showResponse(data);
+        
+        // Clear the form after successful submission
+        document.getElementById('phone-model').value = '';
+        document.getElementById('issue').value = '';
+        
+        const container = document.getElementById('repair-parts-container');
+        container.innerHTML = '';
+        addRepairPart(); // Add one empty part field
     } catch (error) {
+        console.error('Error in createRepair:', error);
         showResponse(`Помилка створення ремонту: ${error.message}`, true);
     }
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM fully loaded');
+    
+    // Make sure at least one part field exists
+    if (document.getElementById('repair-parts-container') && 
+        document.getElementById('repair-parts-container').children.length === 0) {
+        addRepairPart();
+    }
+    
+    // Add direct event listeners to buttons to ensure they work
+    const createRepairBtn = document.querySelector('button[onclick="createRepair()"]');
+    if (createRepairBtn) {
+        createRepairBtn.addEventListener('click', function() {
+            console.log('Create repair button clicked via event listener');
+            createRepair();
+        });
+    }
+    
+    const getRepairsBtn = document.querySelector('button[onclick="getRepairs()"]');
+    if (getRepairsBtn) {
+        getRepairsBtn.addEventListener('click', function() {
+            console.log('Get repairs button clicked via event listener');
+            getRepairs();
+        });
+    }
+    
+    const addPartBtn = document.querySelector('button[onclick="addRepairPart()"]');
+    if (addPartBtn) {
+        addPartBtn.addEventListener('click', function() {
+            console.log('Add part button clicked via event listener');
+            addRepairPart();
+        });
+    }
+    
+    // Add remove buttons to existing repair parts if they don't have them
+    document.querySelectorAll('.repair-part').forEach(part => {
+        if (!part.querySelector('.remove-part')) {
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'remove-part';
+            removeBtn.textContent = '✕';
+            removeBtn.onclick = function() { removeRepairPart(this); };
+            part.appendChild(removeBtn);
+        }
+    });
+});
+
 
 // Отримання замовлень
 async function getOrders() {
