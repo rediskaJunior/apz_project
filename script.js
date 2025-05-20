@@ -103,75 +103,43 @@ function showResponse(data, isError = false) {
 }
 
 function createTable(data) {
-    if (typeof data === 'object' && !Array.isArray(data)) {
-        const keys = Object.keys(data);
-        
-        if (keys.length === 0) {
-            return 'No data available';
-        }
-        
-        const firstItemKey = keys[0];
-        const firstItem = data[firstItemKey];
-        const nestedKeys = Object.keys(firstItem);
-        
-        const headers = ['product_key', ...nestedKeys];
-        
-        let tableHTML = '<table class="data-table">';
-        
-        tableHTML += '<thead><tr>';
-        headers.forEach(header => {
-            tableHTML += `<th>${formatHeader(header)}</th>`;
-        });
-        tableHTML += '</tr></thead>';
-        
-        tableHTML += '<tbody>';
-        keys.forEach(key => {
-            const item = data[key];
-            tableHTML += '<tr>';
-            
-            tableHTML += `<td>${key}</td>`;
-            
-            nestedKeys.forEach(nestedKey => {
-                tableHTML += `<td>${item[nestedKey] !== null && item[nestedKey] !== undefined ? item[nestedKey] : ''}</td>`;
-            });
-            
-            tableHTML += '</tr>';
-        });
-        tableHTML += '</tbody></table>';
-        
-        return tableHTML;
+    if (!data || (Array.isArray(data) && data.length === 0)) {
+        return 'No data available';
     }
-    
+
+    let items = [];
+
+    // Support both array and {items: []} style
     if (Array.isArray(data)) {
-        if (data.length === 0) {
-            return 'No data available';
-        }
-        
-        const headers = Object.keys(data[0]);
-        
-        let tableHTML = '<table class="data-table">';
-        
-        tableHTML += '<thead><tr>';
-        headers.forEach(header => {
-            tableHTML += `<th>${formatHeader(header)}</th>`;
-        });
-        tableHTML += '</tr></thead>';
-        
-        tableHTML += '<tbody>';
-        data.forEach(item => {
-            tableHTML += '<tr>';
-            headers.forEach(header => {
-                tableHTML += `<td>${item[header] !== null && item[header] !== undefined ? item[header] : ''}</td>`;
-            });
-            tableHTML += '</tr>';
-        });
-        tableHTML += '</tbody></table>';
-        
-        return tableHTML;
+        items = data;
+    } else if (Array.isArray(data.items)) {
+        items = data.items;
+    } else {
+        return 'Invalid data format';
     }
-    
-    return 'No data available';
+
+    const headers = Object.keys(items[0]);
+
+    let tableHTML = '<table class="data-table">';
+    tableHTML += '<thead><tr>';
+    headers.forEach(header => {
+        tableHTML += `<th>${formatHeader(header)}</th>`;
+    });
+    tableHTML += '</tr></thead>';
+
+    tableHTML += '<tbody>';
+    items.forEach(item => {
+        tableHTML += '<tr>';
+        headers.forEach(header => {
+            tableHTML += `<td>${item[header] !== null && item[header] !== undefined ? item[header] : ''}</td>`;
+        });
+        tableHTML += '</tr>';
+    });
+    tableHTML += '</tbody></table>';
+
+    return tableHTML;
 }
+
 
 function formatHeader(header) {
     return header
@@ -377,14 +345,33 @@ async function createOrder() {
 }
 
 // =============================== INVENTORY ===========================
-async function getInventory() {
+function getComponents() {
+getInventoryFiltered('component');
+}
+
+function getPhones() {
+getInventoryFiltered('phone');
+}
+
+async function getInventoryFiltered(categoryType) {
     try {
-        const data = await getAPI('/inventory');
-        showResponse(data);
+    const data = await getAPI('/inventory');
+    // Assume data = { items: [...] }
+        if (!data || !Array.isArray(data.items)) {
+            throw new Error("Invalid inventory data format");
+        }
+
+        const filteredItems = data.items.filter(item =>
+            item.category && item.category.toLowerCase() === categoryType.toLowerCase()
+        );
+
+        showResponse(filteredItems);
     } catch (error) {
-        showResponse(`Помилка отримання компонентів: ${error.message}`, true);
+        showResponse(`Помилка отримання інвентарю (${categoryType}): ${error.message}`, true);
     }
 }
+
+
 
 // ===================== LOADER =====================
 document.addEventListener('DOMContentLoaded', function() {
