@@ -94,11 +94,89 @@ function showResponse(data, isError = false) {
     } else {
         responseElement.style.color = 'black';
         if (typeof data === 'object') {
-            responseElement.textContent = JSON.stringify(data, null, 2);
+            responseElement.innerHTML = createTable(data);
         } else {
             responseElement.textContent = data;
         }
     }
+}
+
+function createTable(data) {
+    if (typeof data === 'object' && !Array.isArray(data)) {
+        const keys = Object.keys(data);
+        
+        if (keys.length === 0) {
+            return 'No data available';
+        }
+        
+        const firstItemKey = keys[0];
+        const firstItem = data[firstItemKey];
+        const nestedKeys = Object.keys(firstItem);
+        
+        const headers = ['product_key', ...nestedKeys];
+        
+        let tableHTML = '<table class="data-table">';
+        
+        tableHTML += '<thead><tr>';
+        headers.forEach(header => {
+            tableHTML += `<th>${formatHeader(header)}</th>`;
+        });
+        tableHTML += '</tr></thead>';
+        
+        tableHTML += '<tbody>';
+        keys.forEach(key => {
+            const item = data[key];
+            tableHTML += '<tr>';
+            
+            tableHTML += `<td>${key}</td>`;
+            
+            nestedKeys.forEach(nestedKey => {
+                tableHTML += `<td>${item[nestedKey] !== null && item[nestedKey] !== undefined ? item[nestedKey] : ''}</td>`;
+            });
+            
+            tableHTML += '</tr>';
+        });
+        tableHTML += '</tbody></table>';
+        
+        return tableHTML;
+    }
+    
+    if (Array.isArray(data)) {
+        if (data.length === 0) {
+            return 'No data available';
+        }
+        
+        const headers = Object.keys(data[0]);
+        
+        let tableHTML = '<table class="data-table">';
+        
+        tableHTML += '<thead><tr>';
+        headers.forEach(header => {
+            tableHTML += `<th>${formatHeader(header)}</th>`;
+        });
+        tableHTML += '</tr></thead>';
+        
+        tableHTML += '<tbody>';
+        data.forEach(item => {
+            tableHTML += '<tr>';
+            headers.forEach(header => {
+                tableHTML += `<td>${item[header] !== null && item[header] !== undefined ? item[header] : ''}</td>`;
+            });
+            tableHTML += '</tr>';
+        });
+        tableHTML += '</tbody></table>';
+        
+        return tableHTML;
+    }
+    
+    return 'No data available';
+}
+
+function formatHeader(header) {
+    return header
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
 }
 
 // ========================== ENDPOINT CALLS ============================
@@ -190,15 +268,15 @@ function addRepairPart() {
     container.appendChild(partDiv);
 }
 
-async function getRepairs() {
-    console.log('getRepairs function called');
-    try {
-        const data = await getAPI('/repairs');
-        showResponse(data);
-    } catch (error) {
-        showResponse(`Помилка отримання ремонтів: ${error.message}`, true);
-    }
-}
+// async function getRepairs() {
+//     console.log('getRepairs function called');
+//     try {
+//         const data = await getAPI('/repairs');
+//         showResponse(data);
+//     } catch (error) {
+//         showResponse(`Помилка отримання ремонтів: ${error.message}`, true);
+//     }
+// }
 
 function removeRepairPart(button) {
     console.log('removeRepairPart function called');

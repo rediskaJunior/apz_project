@@ -6,7 +6,7 @@ def main():
 
     # Define key-values to set in Consul
     kvs = {
-        "cluster-name": "haz-cluster",
+        "cluster-name": "dev",
         "queue-name": "order-processing-queue",
         "repairs-map": "repairs-map",
         "inventory-map": "inventory-map",
