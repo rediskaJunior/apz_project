@@ -84,7 +84,23 @@
         <h2>Інвентар</h2>
         <button onclick="getComponents()">Отримати список компонентів</button>
         <button onclick="getPhones()">Отримати список телефонів</button>
+
+        <h3>Додати новий товар</h3>
+            <form id="add-inventory-form" onsubmit="submitInventoryForm(event)">
+            <input type="text" id="item-id" placeholder="ID товару" required />
+            <input type="text" id="item-name" placeholder="Назва" required />
+            <input type="number" id="item-quantity" placeholder="Кількість" required />
+            <input type="number" id="item-available" placeholder="Доступна кількість" required />
+            <input type="number" step="0.01" id="item-price" placeholder="Ціна" required />
+            <select id="item-category" required>
+                <option value="">Категорія</option>
+                <option value="component">Компонент</option>
+                <option value="phone">Телефон</option>
+            </select>
+            <button type="submit">Додати до інвентарю</button>
+        </form>
     </div>
+
     
     <!-- Виведення результатів, for debug -->
     <div class="container">

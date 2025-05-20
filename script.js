@@ -373,8 +373,108 @@ async function getInventoryFiltered(categoryType) {
         showResponse(`Помилка отримання інвентарю (${categoryType}): ${error.message}`, true);
     }
 }
+async function submitInventoryForm(event) {
+    event.preventDefault();
 
+    // Get values from form
+    const id = document.getElementById('item-id').value.trim();
+    const name = document.getElementById('item-name').value.trim();
+    const quantity = parseInt(document.getElementById('item-quantity').value, 10);
+    const availableQuantity = parseInt(document.getElementById('item-available').value, 10);
+    const price = parseFloat(document.getElementById('item-price').value);
+    const category = document.getElementById('item-category').value;
 
+    // Validate inputs
+    if (!id || !name || isNaN(quantity) || isNaN(availableQuantity) || isNaN(price) || !category) {
+        alert('Будь ласка, заповніть всі поля коректно');
+        return;
+    }
+
+    // Create payload in the specified format
+    const payload = {
+        items: [{
+            id: id,
+            name: name,
+            quantity: quantity,
+            available_quantity: availableQuantity,
+            price: price,
+            category: category
+        }]
+    };
+
+    console.log('Sending inventory payload:', JSON.stringify(payload, null, 2));
+
+    try {
+        const response = await fetch('/log_inventory', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        // Log raw response details
+        console.log('Response status:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+        // Check response content type
+        const contentType = response.headers.get('content-type');
+        console.log('Content-Type:', contentType);
+
+        // Check response body before parsing
+        const responseText = await response.text();
+        console.log('Response body:', responseText);
+
+        // Handle empty response
+        if (!responseText) {
+            if (response.ok) {
+                alert(`Успішно оновлено інвентар. Додано/оновлено: ${id}`);
+                clearInventoryForm();
+                return;
+            }
+            throw new Error('Порожня відповідь від сервера');
+        }
+
+        // Try to parse JSON
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error('JSON parsing error:', parseError);
+            throw new Error(`Помилка парсингу відповіді: ${responseText}`);
+        }
+
+        // Check for successful response
+        if (!response.ok) {
+            throw new Error(result.detail || `HTTP error! status: ${response.status}`);
+        }
+
+        // Success scenario
+        console.log('Parsed result:', result);
+        alert(`Успішно оновлено інвентар. Додано/оновлено: ${id}`);
+        clearInventoryForm();
+
+    } catch (error) {
+        console.error('Detailed error submitting inventory:', error);
+        
+        // More informative error handling
+        if (error instanceof TypeError) {
+            alert(`Мережева помилка: ${error.message}`);
+        } else {
+            alert(`Помилка: ${error.message}`);
+        }
+    }
+}
+
+function clearInventoryForm() {
+    document.getElementById('item-id').value = '';
+    document.getElementById('item-name').value = '';
+    document.getElementById('item-quantity').value = '';
+    document.getElementById('item-available').value = '';
+    document.getElementById('item-price').value = '';
+    document.getElementById('item-category').value = '';
+}
 
 // ===================== LOADER =====================
 document.addEventListener('DOMContentLoaded', function() {

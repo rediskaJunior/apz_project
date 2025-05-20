@@ -140,6 +140,8 @@ async def health_check():
 # -------------- INVENTORY ENDPOINTS ---------------
 @app.post("/log_inventory")
 async def log_inventory(data: InventoryLogRequest):
+    print("Received payload:", data)  # Add this line for logging
+    
     map_ = inventory_service.hz_client.get_map(inventory_service.map_name).blocking()
     for item in data.items:
         existing = map_.get(item.id)
@@ -149,6 +151,8 @@ async def log_inventory(data: InventoryLogRequest):
             map_.put(item.id, existing)
         else:
             map_.put(item.id, item.dict())
+    
+    # Ensure you're returning a JSON-serializable response
     return {"status": "inventory updated", "added": [item.id for item in data.items]}
 
 @app.post("/reserve_inventory")
