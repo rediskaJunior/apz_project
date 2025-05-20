@@ -1,6 +1,7 @@
 // ======================= CONFIGURATION ============================
-const API_URL = 'http://localhost:5010/api';
+const API_URL = 'http://localhost:5010';
 const REP_URL = 'http://localhost:8590';
+const OR_URL = 'http://localhost:8700';
 let token = localStorage.getItem('token') || '';
 
 const headers = {
@@ -181,7 +182,7 @@ function formatHeader(header) {
 
 // ========================== ENDPOINT CALLS ============================
 async function getAPI(endpoint) {
-    const url = `${REP_URL}${endpoint}`;
+    const url = `${API_URL}${endpoint}`;
     console.log(`Making GET request to ${url}`);
     try {
         const response = await fetch(url, {
@@ -213,7 +214,7 @@ async function getAPI(endpoint) {
 }
 
 async function postAPI(endpoint, data) {
-    const url = `${REP_URL}${endpoint}`;
+    const url = `${API_URL}${endpoint}`;
     console.log(`Making POST request to ${url} with data:`, data);
     try {
         const response = await fetch(url, {
@@ -267,16 +268,6 @@ function addRepairPart() {
     `;
     container.appendChild(partDiv);
 }
-
-// async function getRepairs() {
-//     console.log('getRepairs function called');
-//     try {
-//         const data = await getAPI('/repairs');
-//         showResponse(data);
-//     } catch (error) {
-//         showResponse(`Помилка отримання ремонтів: ${error.message}`, true);
-//     }
-// }
 
 function removeRepairPart(button) {
     console.log('removeRepairPart function called');
@@ -338,6 +329,7 @@ async function createRepair() {
 
 // =============================== ORDERS ===========================
 async function getOrders() {
+    console.log('getOrders function called');
     try {
         const data = await getAPI('/orders');
         showResponse(data);
@@ -347,17 +339,39 @@ async function getOrders() {
 }
 
 async function createOrder() {
-   const requestData = {
-        orders: {
-            "part-123": 2,
-            "part-456": 1
-        }
-    };
+    console.log('createOrder function called');
+    
+    // Get values from the simple form fields
+    const componentId = document.getElementById('component').value.trim();
+    const quantityInput = document.getElementById('quantity').value.trim();
+    const quantity = parseInt(quantityInput, 10);
+
+    console.log(`Component: ${componentId}, Quantity: ${quantity}`);
+
+    // Validate inputs
+    if (!componentId || !quantity || quantity < 1) {
+        showResponse('Помилка: Вкажіть компонент та кількість (мінімум 1)', true);
+        return;
+    }
+
+    // Create the orders object with a single component
+    const orders = {};
+    orders[componentId] = quantity;
+
+    console.log('Collected orders:', orders);
 
     try {
-        const data = await postAPI('/add_order', requestData);
+        console.log('Sending order request with orders:', { orders });
+        
+        const data = await postAPI('/add_order', { orders });
+        console.log('Order request successful:', data);
         showResponse(data);
+        
+        // Clear form after successful submission
+        document.getElementById('component').value = '';
+        document.getElementById('quantity').value = '1';
     } catch (error) {
+        console.error('Error in createOrder:', error);
         showResponse(`Помилка створення замовлення: ${error.message}`, true);
     }
 }
