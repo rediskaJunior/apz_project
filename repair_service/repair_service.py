@@ -11,6 +11,8 @@ import os, sys
 from pydantic import BaseModel
 import uvicorn
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
@@ -69,9 +71,16 @@ class RepairService:
         self.hz_client.shutdown()
         print("Hazelcast client shutdown")
 
-
 app = FastAPI()
 repair_service = None
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or replace "*" with the frontend's origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # -------------- DEFAULT ENDPOINTS ---------------
 

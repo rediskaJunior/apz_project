@@ -1,14 +1,21 @@
-// Конфігурація API
+// ======================= CONFIGURATION ============================
 const API_URL = 'http://localhost:5010/api';
 const REP_URL = 'http://localhost:8590';
 let token = localStorage.getItem('token') || '';
 
-// Ініціалізація при завантаженні сторінки
+const headers = {
+    'Content-Type': 'application/json'
+};
+
+if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+}
+
 window.onload = function() {
     updateAuthStatus();
 };
 
-// Оновлення статусу авторизації
+// ========================== AUTHORISATION =======================
 function updateAuthStatus() {
     const authStatus = document.getElementById('auth-status');
     if (token) {
@@ -20,49 +27,81 @@ function updateAuthStatus() {
     }
 }
 
-// Показ відповідного розділу
+async function login() {
+    const login = document.getElementById('login').value;
+    const password = document.getElementById('password').value;
+    
+    if (!login || !password) {
+        showResponse('Помилка: Заповніть всі поля', true);
+        return;
+    }
+    
+    try {
+        // send POST request to api gateway
+        const data = await postAPI('/auth/login', { login, password });
+        token = data.token; // store token data (here will be JWT)
+        localStorage.setItem('token', token);
+        updateAuthStatus(); // update authentification status
+        showResponse('Успішно авторизовано!'); // the response field for debug
+    } catch (error) {
+        showResponse(`Помилка авторизації: ${error.message}`, true);
+    }
+}
+
+function logout() {
+    token = '';
+    localStorage.removeItem('token');
+    updateAuthStatus();
+    showResponse('Ви вийшли з системи.');
+    showSection('auth');
+}
+
+async function register() {
+    const login = document.getElementById('login').value;
+    const password = document.getElementById('password').value;
+    
+    if (!login || !password) { // check if user filled out the inputs
+        showResponse('Помилка: Заповніть всі поля', true);
+        return;
+    } 
+    
+    try {
+        // send POST request to api gateway
+        const data = await postAPI('/auth/register', { login, password });
+        showResponse('Успішно зареєстровано. Тепер можете увійти.');
+    } catch (error) {
+        showResponse(`Помилка реєстрації: ${error.message}`, true);
+    }
+}
+
+
+// ====================================== HTML FUNCTIONS ===========================
 function showSection(section) {
-    // Приховуємо всі розділи
     document.getElementById('auth-section').classList.add('hidden');
     document.getElementById('repairs-section').classList.add('hidden');
     document.getElementById('orders-section').classList.add('hidden');
     document.getElementById('inventory-section').classList.add('hidden');
     
-    // Показуємо вибраний розділ
     document.getElementById(`${section}-section`).classList.remove('hidden');
 }
 
-const headers = {
-    'Content-Type': 'application/json'
-};
-
-if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-}
-
-function showResponse(message, isError = false) {
-    // Create response element if it doesn't exist
-    if (!document.getElementById('response-message')) {
-        const responseDiv = document.createElement('div');
-        responseDiv.id = 'response-message';
-        responseDiv.style.padding = '10px';
-        responseDiv.style.margin = '10px 0';
-        responseDiv.style.borderRadius = '5px';
-        document.body.appendChild(responseDiv);
+function showResponse(data, isError = false) {
+    const responseElement = document.getElementById('response');
+    
+    if (isError) {
+        responseElement.style.color = 'red';
+        responseElement.textContent = data;
+    } else {
+        responseElement.style.color = 'black';
+        if (typeof data === 'object') {
+            responseElement.textContent = JSON.stringify(data, null, 2);
+        } else {
+            responseElement.textContent = data;
+        }
     }
-    
-    const messageEl = document.getElementById('response-message');
-    messageEl.textContent = typeof message === 'object' ? JSON.stringify(message, null, 2) : message;
-    messageEl.style.backgroundColor = isError ? '#f2dede' : '#dff0d8';
-    messageEl.style.color = isError ? '#a94442' : '#3c763d';
-    messageEl.style.border = isError ? '1px solid #ebccd1' : '1px solid #d6e9c6';
-    messageEl.style.display = 'block';
-    
-    // Log to console for debugging
-    console.log(isError ? 'ERROR:' : 'SUCCESS:', message);
 }
 
-// Helper function for GET API calls
+// ========================== ENDPOINT CALLS ============================
 async function getAPI(endpoint) {
     const url = `${REP_URL}${endpoint}`;
     console.log(`Making GET request to ${url}`);
@@ -96,7 +135,7 @@ async function getAPI(endpoint) {
 }
 
 async function postAPI(endpoint, data) {
-    const url = `${API_URL}${endpoint}`;
+    const url = `${REP_URL}${endpoint}`;
     console.log(`Making POST request to ${url} with data:`, data);
     try {
         const response = await fetch(url, {
@@ -127,50 +166,7 @@ async function postAPI(endpoint, data) {
     }
 }
 
-
-// Авторизація - login
-async function login() {
-    //get user input
-    const login = document.getElementById('login').value;
-    const password = document.getElementById('password').value;
-    
-    if (!login || !password) { // check if user filled out the inputs
-        showResponse('Помилка: Заповніть всі поля', true);
-        return;
-    }
-    
-    try {
-        // send POST request to api gateway
-        const data = await postAPI('/auth/login', { login, password });
-        token = data.token; // store token data (here will be JWT)
-        localStorage.setItem('token', token);
-        updateAuthStatus(); // update authentification status
-        showResponse('Успішно авторизовано!'); // the response field for debug
-    } catch (error) {
-        showResponse(`Помилка авторизації: ${error.message}`, true);
-    }
-}
-
-// Реєстрація
-async function register() {
-    const login = document.getElementById('login').value;
-    const password = document.getElementById('password').value;
-    
-    if (!login || !password) { // check if user filled out the inputs
-        showResponse('Помилка: Заповніть всі поля', true);
-        return;
-    } 
-    
-    try {
-        // send POST request to api gateway
-        const data = await postAPI('/auth/register', { login, password });
-        showResponse('Успішно зареєстровано. Тепер можете увійти.');
-    } catch (error) {
-        showResponse(`Помилка реєстрації: ${error.message}`, true);
-    }
-}
-
-// Отримання ремонтів
+// ================== REPAIRS ==============================
 async function getRepairs() {
     console.log('getRepairs function called');
     try {
@@ -194,92 +190,6 @@ function addRepairPart() {
     container.appendChild(partDiv);
 }
 
-
-
-// Create a repair request
-// Customized JavaScript file to work with your existing Python backend
-
-// Helper function to display response messages
-function showResponse(message, isError = false) {
-    // Create response element if it doesn't exist
-    if (!document.getElementById('response-message')) {
-        const responseDiv = document.createElement('div');
-        responseDiv.id = 'response-message';
-        responseDiv.style.padding = '10px';
-        responseDiv.style.margin = '10px 0';
-        responseDiv.style.borderRadius = '5px';
-        document.body.appendChild(responseDiv);
-    }
-    
-    const messageEl = document.getElementById('response-message');
-    messageEl.textContent = typeof message === 'object' ? JSON.stringify(message, null, 2) : message;
-    messageEl.style.backgroundColor = isError ? '#f2dede' : '#dff0d8';
-    messageEl.style.color = isError ? '#a94442' : '#3c763d';
-    messageEl.style.border = isError ? '1px solid #ebccd1' : '1px solid #d6e9c6';
-    messageEl.style.display = 'block';
-    
-    // Log to console for debugging
-    console.log(isError ? 'ERROR:' : 'SUCCESS:', message);
-}
-
-// Helper function for GET API calls
-async function getAPI(endpoint) {
-    console.log(`Making GET request to ${endpoint}`);
-    try {
-        const response = await fetch(endpoint, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                ...(token && { 'Authorization': `Bearer ${token}` })
-            }
-        });
-
-        const contentType = response.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-            const text = await response.text(); // maybe HTML
-            throw new Error("Очікував JSON, але отримав: " + text.slice(0, 100));
-        }
-
-        const responseData = await response.json();
-
-        if (!response.ok) {
-            throw new Error(responseData.detail || 'Unknown error occurred');
-        }
-
-        return responseData;
-    } catch (error) {
-        console.error('GET API Error:', error);
-        throw error;
-    }
-}
-// Helper function for POST API calls
-async function postAPI(endpoint, data) {
-    console.log(`Making POST request to ${endpoint} with data:`, data);
-    try {
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(data)
-        });
-        
-        const responseData = await response.json();
-        console.log('Response received:', responseData);
-        
-        if (!response.ok) {
-            throw new Error(responseData.detail || 'Unknown error occurred');
-        }
-        
-        return responseData;
-    } catch (error) {
-        console.error('POST API Error:', error);
-        throw error;
-    }
-}
-
-// Get repairs list
 async function getRepairs() {
     console.log('getRepairs function called');
     try {
@@ -290,28 +200,12 @@ async function getRepairs() {
     }
 }
 
-// Add a repair part input to the form
-function addRepairPart() {
-    console.log('addRepairPart function called');
-    const container = document.getElementById('repair-parts-container');
-    const partDiv = document.createElement('div');
-    partDiv.className = 'repair-part';
-    partDiv.innerHTML = `
-        <input class="part-id" placeholder="ID деталі">
-        <input class="part-qty" type="number" placeholder="Кількість" min="1" value="1">
-        <button type="button" class="remove-part" onclick="removeRepairPart(this)">✕</button>
-    `;
-    container.appendChild(partDiv);
-}
-
-// Remove a repair part from the form
 function removeRepairPart(button) {
     console.log('removeRepairPart function called');
     const partDiv = button.parentElement;
     partDiv.remove();
 }
 
-// Create a repair request - modified to match your Python backend
 async function createRepair() {
     console.log('createRepair function called');
     
@@ -321,7 +215,6 @@ async function createRepair() {
     const partElements = document.querySelectorAll('.repair-part');
     const orders = {};
 
-    // Collect all parts and quantities
     partElements.forEach((partEl, index) => {
         const partId = partEl.querySelector('.part-id').value.trim();
         const quantityInput = partEl.querySelector('.part-qty').value.trim();
@@ -336,7 +229,6 @@ async function createRepair() {
 
     console.log('Collected orders:', orders);
 
-    // Validate inputs
     if (!phoneModel || !issue) {
         showResponse('Помилка: Заповніть модель телефону та проблему', true);
         return;
@@ -348,27 +240,61 @@ async function createRepair() {
     }
 
     try {
-        // IMPORTANT: Only sending the 'orders' field as that's what your Python backend expects
         console.log('Sending repair request with orders:', { orders });
         
         const data = await postAPI('/add_repair', { orders });
-        
         console.log('Repair request successful:', data);
         showResponse(data);
         
-        // Clear the form after successful submission
         document.getElementById('phone-model').value = '';
         document.getElementById('issue').value = '';
         
         const container = document.getElementById('repair-parts-container');
         container.innerHTML = '';
-        addRepairPart(); // Add one empty part field
+        addRepairPart();
     } catch (error) {
         console.error('Error in createRepair:', error);
         showResponse(`Помилка створення ремонту: ${error.message}`, true);
     }
 }
 
+// =============================== ORDERS ===========================
+async function getOrders() {
+    try {
+        const data = await getAPI('/orders');
+        showResponse(data);
+    } catch (error) {
+        showResponse(`Помилка отримання замовлень: ${error.message}`, true);
+    }
+}
+
+async function createOrder() {
+   const requestData = {
+        orders: {
+            "part-123": 2,
+            "part-456": 1
+        }
+    };
+
+    try {
+        const data = await postAPI('/add_order', requestData);
+        showResponse(data);
+    } catch (error) {
+        showResponse(`Помилка створення замовлення: ${error.message}`, true);
+    }
+}
+
+// =============================== INVENTORY ===========================
+async function getInventory() {
+    try {
+        const data = await getAPI('/inventory');
+        showResponse(data);
+    } catch (error) {
+        showResponse(`Помилка отримання компонентів: ${error.message}`, true);
+    }
+}
+
+// ===================== LOADER =====================
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM fully loaded');
     
@@ -415,77 +341,3 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
-
-
-// Отримання замовлень
-async function getOrders() {
-    try {
-        const data = await getAPI('/orders');
-        showResponse(data);
-    } catch (error) {
-        showResponse(`Помилка отримання замовлень: ${error.message}`, true);
-    }
-}
-
-// Створення замовлення
-async function createOrder() {
-   const requestData = {
-        orders: {
-            "part-123": 2,
-            "part-456": 1
-        }
-    };
-
-    try {
-        const data = await postAPI('/add_order', requestData);
-        showResponse(data);
-    } catch (error) {
-        showResponse(`Помилка створення замовлення: ${error.message}`, true);
-    }
-}
-
-// Отримання компонентів
-async function getComponents() {
-    try {
-        const data = await getAPI('/inventory/components');
-        showResponse(data);
-    } catch (error) {
-        showResponse(`Помилка отримання компонентів: ${error.message}`, true);
-    }
-}
-
-// Отримання телефонів
-async function getPhones() {
-    try {
-        const data = await getAPI('/inventory/phones');
-        showResponse(data);
-    } catch (error) {
-        showResponse(`Помилка отримання телефонів: ${error.message}`, true);
-    }
-}
-
-// Виведення відповіді
-function showResponse(data, isError = false) {
-    const responseElement = document.getElementById('response');
-    
-    if (isError) {
-        responseElement.style.color = 'red';
-        responseElement.textContent = data;
-    } else {
-        responseElement.style.color = 'black';
-        if (typeof data === 'object') {
-            responseElement.textContent = JSON.stringify(data, null, 2);
-        } else {
-            responseElement.textContent = data;
-        }
-    }
-}
-
-// Функція для виходу з системи
-function logout() {
-    token = '';
-    localStorage.removeItem('token');
-    updateAuthStatus();
-    showResponse('Ви вийшли з системи.');
-    showSection('auth');
-}
