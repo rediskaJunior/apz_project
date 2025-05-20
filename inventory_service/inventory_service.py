@@ -9,6 +9,7 @@ import hazelcast
 import os, sys
 from pydantic import BaseModel
 import uvicorn
+from fastapi.middleware.cors import CORSMiddleware
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
@@ -104,7 +105,14 @@ class InventoryService:
 
 
 app = FastAPI()
-inventory_service = None
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or replace "*" with the frontend's origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+api_service = None
 
 # -------------- DEFAULT ENDPOINTS ---------------
 
@@ -132,6 +140,8 @@ async def health_check():
 # -------------- INVENTORY ENDPOINTS ---------------
 @app.post("/log_inventory")
 async def log_inventory(data: InventoryLogRequest):
+    print("Received payload:", data)  # Add this line for logging
+    
     map_ = inventory_service.hz_client.get_map(inventory_service.map_name).blocking()
     for item in data.items:
         existing = map_.get(item.id)
@@ -141,6 +151,8 @@ async def log_inventory(data: InventoryLogRequest):
             map_.put(item.id, existing)
         else:
             map_.put(item.id, item.dict())
+    
+    # Ensure you're returning a JSON-serializable response
     return {"status": "inventory updated", "added": [item.id for item in data.items]}
 
 @app.post("/reserve_inventory")

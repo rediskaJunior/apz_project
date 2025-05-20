@@ -9,6 +9,7 @@ import httpx
 import hazelcast
 import os, sys
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -70,7 +71,14 @@ class OrderService:
 
 
 app = FastAPI()
-order_service = None
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or replace "*" with the frontend's origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+api_service = None
 
 # -------------- DEFAULT ENDPOINTS ---------------
 

@@ -1,6 +1,7 @@
 // ======================= CONFIGURATION ============================
-const API_URL = 'http://localhost:5010/api';
+const API_URL = 'http://localhost:5010';
 const REP_URL = 'http://localhost:8590';
+const OR_URL = 'http://localhost:8700';
 let token = localStorage.getItem('token') || '';
 
 const headers = {
@@ -94,16 +95,62 @@ function showResponse(data, isError = false) {
     } else {
         responseElement.style.color = 'black';
         if (typeof data === 'object') {
-            responseElement.textContent = JSON.stringify(data, null, 2);
+            responseElement.innerHTML = createTable(data);
         } else {
             responseElement.textContent = data;
         }
     }
 }
 
+function createTable(data) {
+    if (!data || (Array.isArray(data) && data.length === 0)) {
+        return 'No data available';
+    }
+
+    let items = [];
+
+    // Support both array and {items: []} style
+    if (Array.isArray(data)) {
+        items = data;
+    } else if (Array.isArray(data.items)) {
+        items = data.items;
+    } else {
+        return 'Invalid data format';
+    }
+
+    const headers = Object.keys(items[0]);
+
+    let tableHTML = '<table class="data-table">';
+    tableHTML += '<thead><tr>';
+    headers.forEach(header => {
+        tableHTML += `<th>${formatHeader(header)}</th>`;
+    });
+    tableHTML += '</tr></thead>';
+
+    tableHTML += '<tbody>';
+    items.forEach(item => {
+        tableHTML += '<tr>';
+        headers.forEach(header => {
+            tableHTML += `<td>${item[header] !== null && item[header] !== undefined ? item[header] : ''}</td>`;
+        });
+        tableHTML += '</tr>';
+    });
+    tableHTML += '</tbody></table>';
+
+    return tableHTML;
+}
+
+
+function formatHeader(header) {
+    return header
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+}
+
 // ========================== ENDPOINT CALLS ============================
 async function getAPI(endpoint) {
-    const url = `${REP_URL}${endpoint}`;
+    const url = `${API_URL}${endpoint}`;
     console.log(`Making GET request to ${url}`);
     try {
         const response = await fetch(url, {
@@ -135,7 +182,7 @@ async function getAPI(endpoint) {
 }
 
 async function postAPI(endpoint, data) {
-    const url = `${REP_URL}${endpoint}`;
+    const url = `${API_URL}${endpoint}`;
     console.log(`Making POST request to ${url} with data:`, data);
     try {
         const response = await fetch(url, {
@@ -188,16 +235,6 @@ function addRepairPart() {
         <button type="button" class="remove-part" onclick="removeRepairPart(this)">✕</button>
     `;
     container.appendChild(partDiv);
-}
-
-async function getRepairs() {
-    console.log('getRepairs function called');
-    try {
-        const data = await getAPI('/repairs');
-        showResponse(data);
-    } catch (error) {
-        showResponse(`Помилка отримання ремонтів: ${error.message}`, true);
-    }
 }
 
 function removeRepairPart(button) {
@@ -260,6 +297,7 @@ async function createRepair() {
 
 // =============================== ORDERS ===========================
 async function getOrders() {
+    console.log('getOrders function called');
     try {
         const data = await getAPI('/orders');
         showResponse(data);
@@ -269,29 +307,173 @@ async function getOrders() {
 }
 
 async function createOrder() {
-   const requestData = {
-        orders: {
-            "part-123": 2,
-            "part-456": 1
-        }
-    };
+    console.log('createOrder function called');
+    
+    // Get values from the simple form fields
+    const componentId = document.getElementById('component').value.trim();
+    const quantityInput = document.getElementById('quantity').value.trim();
+    const quantity = parseInt(quantityInput, 10);
+
+    console.log(`Component: ${componentId}, Quantity: ${quantity}`);
+
+    // Validate inputs
+    if (!componentId || !quantity || quantity < 1) {
+        showResponse('Помилка: Вкажіть компонент та кількість (мінімум 1)', true);
+        return;
+    }
+
+    // Create the orders object with a single component
+    const orders = {};
+    orders[componentId] = quantity;
+
+    console.log('Collected orders:', orders);
 
     try {
-        const data = await postAPI('/add_order', requestData);
+        console.log('Sending order request with orders:', { orders });
+        
+        const data = await postAPI('/add_order', { orders });
+        console.log('Order request successful:', data);
         showResponse(data);
+        
+        // Clear form after successful submission
+        document.getElementById('component').value = '';
+        document.getElementById('quantity').value = '1';
     } catch (error) {
+        console.error('Error in createOrder:', error);
         showResponse(`Помилка створення замовлення: ${error.message}`, true);
     }
 }
 
 // =============================== INVENTORY ===========================
-async function getInventory() {
+function getComponents() {
+getInventoryFiltered('component');
+}
+
+function getPhones() {
+getInventoryFiltered('phone');
+}
+
+async function getInventoryFiltered(categoryType) {
     try {
         const data = await getAPI('/inventory');
-        showResponse(data);
+
+        // Check data is an object
+        if (!data || typeof data !== 'object') {
+            throw new Error("Invalid inventory data format");
+        }
+
+        const items = Object.values(data); // extract array of products
+
+        const filteredItems = items.filter(item =>
+            item.category && item.category.toLowerCase() === categoryType.toLowerCase()
+        );
+
+        showResponse(filteredItems);
     } catch (error) {
-        showResponse(`Помилка отримання компонентів: ${error.message}`, true);
+        showResponse(`Помилка отримання інвентарю (${categoryType}): ${error.message}`, true);
     }
+}
+async function submitInventoryForm(event) {
+    event.preventDefault();
+
+    // Get values from form
+    const id = document.getElementById('item-id').value.trim();
+    const name = document.getElementById('item-name').value.trim();
+    const quantity = parseInt(document.getElementById('item-quantity').value, 10);
+    const availableQuantity = parseInt(document.getElementById('item-available').value, 10);
+    const price = parseFloat(document.getElementById('item-price').value);
+    const category = document.getElementById('item-category').value;
+
+    // Validate inputs
+    if (!id || !name || isNaN(quantity) || isNaN(availableQuantity) || isNaN(price) || !category) {
+        alert('Будь ласка, заповніть всі поля коректно');
+        return;
+    }
+
+    // Create payload in the specified format
+    const payload = {
+        items: [{
+            id: id,
+            name: name,
+            quantity: quantity,
+            available_quantity: availableQuantity,
+            price: price,
+            category: category
+        }]
+    };
+
+    console.log('Sending inventory payload:', JSON.stringify(payload, null, 2));
+
+    try {
+        const response = await fetch('/log_inventory', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        // Log raw response details
+        console.log('Response status:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+        // Check response content type
+        const contentType = response.headers.get('content-type');
+        console.log('Content-Type:', contentType);
+
+        // Check response body before parsing
+        const responseText = await response.text();
+        console.log('Response body:', responseText);
+
+        // Handle empty response
+        if (!responseText) {
+            if (response.ok) {
+                alert(`Успішно оновлено інвентар. Додано/оновлено: ${id}`);
+                clearInventoryForm();
+                return;
+            }
+            throw new Error('Порожня відповідь від сервера');
+        }
+
+        // Try to parse JSON
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error('JSON parsing error:', parseError);
+            throw new Error(`Помилка парсингу відповіді: ${responseText}`);
+        }
+
+        // Check for successful response
+        if (!response.ok) {
+            throw new Error(result.detail || `HTTP error! status: ${response.status}`);
+        }
+
+        // Success scenario
+        console.log('Parsed result:', result);
+        alert(`Успішно оновлено інвентар. Додано/оновлено: ${id}`);
+        clearInventoryForm();
+
+    } catch (error) {
+        console.error('Detailed error submitting inventory:', error);
+        
+        // More informative error handling
+        if (error instanceof TypeError) {
+            alert(`Мережева помилка: ${error.message}`);
+        } else {
+            alert(`Помилка: ${error.message}`);
+        }
+    }
+}
+
+function clearInventoryForm() {
+    document.getElementById('item-id').value = '';
+    document.getElementById('item-name').value = '';
+    document.getElementById('item-quantity').value = '';
+    document.getElementById('item-available').value = '';
+    document.getElementById('item-price').value = '';
+    document.getElementById('item-category').value = '';
 }
 
 // ===================== LOADER =====================

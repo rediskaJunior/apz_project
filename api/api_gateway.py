@@ -9,6 +9,8 @@ import httpx
 import hazelcast
 import os, sys
 import uvicorn
+from fastapi.middleware.cors import CORSMiddleware
+
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
@@ -85,6 +87,13 @@ class APIService:
 
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or replace "*" with the frontend's origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 api_service = None
 
 app.add_middleware(
@@ -96,7 +105,6 @@ app.add_middleware(
 )
 
 # -------------- DEFAULT ENDPOINTS ---------------
-
 @app.on_event("startup")
 async def startup_event():
     global api_service

@@ -1,81 +1,88 @@
 import httpx
 import asyncio
 
-async def test_api_connection():
-    """Test basic API connectivity"""
-    url = "http://localhost:8590/repairs"
-    
+async def test_inventory_connection():
+    url = "http://localhost:5680/inventory"
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
-            print("\nTesting API Connection:")
+            print("\nTesting Inventory API Connection:")
             print(f"GET {url}")
             print(f"Status Code: {response.status_code}")
             print(f"Response: {response.text[:100]}..." if len(response.text) > 100 else f"Response: {response.text}")
-            
             return response.status_code == 200
     except Exception as e:
         print(f"Connection Error: {e}")
         return False
 
-async def test_add_repair():
-    """Test the add_repair endpoint with correctly formatted data"""
-    url = "http://localhost:8590/add_repair"
+async def test_log_inventory():
+    url = "http://localhost:5680/log_inventory"
     headers = {"Content-Type": "application/json"}
-    
-    # Only includes "orders" field as expected by the API
+
     request_data = {
-        "orders": {
-            "product_1": 10,
-            "product_2": 5
-        }
+        "items": [
+            {
+                "id": "product_test_1",
+                "name": "Test Component 1",
+                "quantity": 20,
+                "available_quantity": 15,
+                "price": 9.99,
+                "category": "component"
+            },
+            {
+                "id": "product_test_2",
+                "name": "Test Phone 2",
+                "quantity": 10,
+                "available_quantity": 8,
+                "price": 199.99,
+                "category": "phone"
+            }
+        ]
     }
 
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=request_data, headers=headers)
-            print("\nTesting Add Repair:")
+            print("\nTesting Log Inventory:")
             print(f"POST {url}")
             print(f"Request Data: {request_data}")
             print(f"Status Code: {response.status_code}")
             print(f"Response: {response.text[:100]}..." if len(response.text) > 100 else f"Response: {response.text}")
-            
             return response.status_code == 200
     except Exception as e:
-        print(f"Add Repair Error: {e}")
+        print(f"Log Inventory Error: {e}")
         return False
 
-async def debug_tests():
-    """Run tests to debug the connection between frontend and backend"""
-    print("===== API DEBUG TESTS =====")
-    
+async def debug_inventory_tests():
+    print("===== INVENTORY API DEBUG TESTS =====")
+
     # Test 1: Basic API connection
-    print("\nTest 1: API Connection")
-    api_ok = await test_api_connection()
-    print(f"API Connection Test: {'PASSED' if api_ok else 'FAILED'}")
-    
-    # Test 2: Adding a repair
-    print("\nTest 2: Add Repair")
-    add_ok = await test_add_repair()
-    print(f"Add Repair Test: {'PASSED' if add_ok else 'FAILED'}")
-    
+    print("\nTest 1: Inventory API Connection")
+    conn_ok = await test_inventory_connection()
+    print(f"Inventory Connection Test: {'PASSED' if conn_ok else 'FAILED'}")
+
+    # Test 2: Logging inventory
+    print("\nTest 2: Log Inventory")
+    log_ok = await test_log_inventory()
+    print(f"Log Inventory Test: {'PASSED' if log_ok else 'FAILED'}")
+
     # Summary
     print("\n===== TEST SUMMARY =====")
-    print(f"API Connection: {'OK' if api_ok else 'NOT WORKING'}")
-    print(f"Add Repair: {'OK' if add_ok else 'NOT WORKING'}")
-    
-    if not api_ok:
+    print(f"Inventory API Connection: {'OK' if conn_ok else 'NOT WORKING'}")
+    print(f"Log Inventory: {'OK' if log_ok else 'NOT WORKING'}")
+
+    if not conn_ok:
         print("\nTROUBLESHOOTING TIPS:")
-        print("1. Make sure your backend server is running at http://localhost:8590")
-        print("2. Check for any firewall or network issues")
-        print("3. Verify the backend is accepting connections")
-    
-    if api_ok and not add_ok:
+        print("1. Ensure inventory backend is running at http://localhost:8700")
+        print("2. Verify /inventory is a GET endpoint")
+        print("3. Check firewall or port blocking")
+
+    if conn_ok and not log_ok:
         print("\nTROUBLESHOOTING TIPS:")
-        print("1. Check if the API expects a different request format")
-        print("2. Look at server logs for validation errors")
-        print("3. Verify that the 'orders' field is properly formatted")
+        print("1. Check that /log_inventory accepts your JSON format")
+        print("2. Inspect server logs for validation or type errors")
+        print("3. Confirm item structure matches InventoryLogRequest")
 
 if __name__ == "__main__":
-    asyncio.run(debug_tests())
-    input("\nНатисни Enter, щоб вийти...")
+    asyncio.run(debug_inventory_tests())
