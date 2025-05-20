@@ -4,6 +4,7 @@
 
 import argparse
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import hazelcast
 import os, sys
@@ -86,6 +87,14 @@ class APIService:
 app = FastAPI()
 api_service = None
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or replace "*" with the frontend's origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # -------------- DEFAULT ENDPOINTS ---------------
 
 @app.on_event("startup")
@@ -149,7 +158,7 @@ async def get_inventory_item(product_id: str, request: Request):
 
 # -------------- ORDER PARTS ENDPOINTS ---------------
 @app.get("/order-parts")
-async def log_inventory(request: Request):
+async def get_order_parts(request: Request):
     return await api_service.proxy_request("order-parts", "GET", "/order-parts", request)
 
 # -------------- STARTUP ---------------

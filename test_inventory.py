@@ -78,3 +78,4 @@ async def debug_tests():
 
 if __name__ == "__main__":
     asyncio.run(debug_tests())
+    input("\nНатисни Enter, щоб вийти...")
