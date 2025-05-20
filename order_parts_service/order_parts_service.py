@@ -5,6 +5,7 @@
 import argparse
 from typing import Dict
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import hazelcast
 import os, sys
@@ -41,7 +42,14 @@ class OrderPartsService:
 
 
 app = FastAPI()
-order_parts_service = None
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or replace "*" with the frontend's origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+api_service = None
 
 # -------------- DEFAULT ENDPOINTS ---------------
 
