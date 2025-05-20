@@ -355,13 +355,16 @@ getInventoryFiltered('phone');
 
 async function getInventoryFiltered(categoryType) {
     try {
-    const data = await getAPI('/inventory');
-    // Assume data = { items: [...] }
-        if (!data || !Array.isArray(data.items)) {
+        const data = await getAPI('/inventory');
+
+        // Check data is an object
+        if (!data || typeof data !== 'object') {
             throw new Error("Invalid inventory data format");
         }
 
-        const filteredItems = data.items.filter(item =>
+        const items = Object.values(data); // extract array of products
+
+        const filteredItems = items.filter(item =>
             item.category && item.category.toLowerCase() === categoryType.toLowerCase()
         );
 
