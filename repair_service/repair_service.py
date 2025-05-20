@@ -109,8 +109,8 @@ async def shutdown():
 async def health_check():
     return {"status": "OK"}
 
-# -------------- ORDER PARTS ENDPOINTS ---------------
-@app.post("/add_repair")
+# -------------- REPAIR ENDPOINTS ---------------
+@app.post("/log_repair")
 async def add_repair(data: OrderPartsRequest):
     parts = [OrderPart(id=k, quantity=v) for k, v in data.orders.items()]
     reserved = await repair_service.reserve_parts(parts)

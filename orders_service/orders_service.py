@@ -103,7 +103,7 @@ async def health_check():
     return {"status": "OK"}
 
 # -------------- ORDER PARTS ENDPOINTS ---------------
-@app.post("/add_order")
+@app.post("/log_order")
 async def add_order(data: OrderPartsRequest):
     parts = [OrderPart(id=k, quantity=v) for k, v in data.orders.items()]
     reserved = await order_service.reserve_parts(parts)

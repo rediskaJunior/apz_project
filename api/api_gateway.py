@@ -52,6 +52,7 @@ class APIService:
         return None
 
     async def proxy_request(self, service_name: str, method: str, path: str, request: Request):
+
         if service_name == "inventory":
             instances = self.inventory_service_instances
             print(f"Looking for inventory: {instances}")
@@ -87,13 +88,6 @@ class APIService:
 
 
 app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Or replace "*" with the frontend's origin
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 api_service = None
 
 app.add_middleware(

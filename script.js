@@ -103,20 +103,37 @@ function showResponse(data, isError = false) {
 }
 
 function createTable(data) {
-    if (!data || (Array.isArray(data) && data.length === 0)) {
-        return 'No data available';
-    }
+    if (!data) return 'No data available';
 
     let items = [];
 
-    // Support both array and {items: []} style
-    if (Array.isArray(data)) {
-        items = data;
-    } else if (Array.isArray(data.items)) {
+    // 1. Якщо data має вигляд { items: [...] }
+    if (Array.isArray(data.items)) {
         items = data.items;
+    }
+
+    // 2. Якщо data — масив об’єктів
+    else if (Array.isArray(data)) {
+        items = data;
+    }
+
+    // 3. Якщо data — об’єкт { key: value } або { key: { ... } }
+    else if (typeof data === 'object') {
+        const keys = Object.keys(data);
+        if (keys.length === 0) return 'No data available';
+
+        // Якщо значення — не об’єкти
+        const isFlat = typeof data[keys[0]] !== 'object';
+        if (isFlat) {
+            items = keys.map(k => ({ key: k, value: data[k] }));
+        } else {
+            items = keys.map(k => ({ key: k, ...data[k] }));
+        }
     } else {
         return 'Invalid data format';
     }
+
+    if (items.length === 0) return 'No data available';
 
     const headers = Object.keys(items[0]);
 
@@ -131,7 +148,9 @@ function createTable(data) {
     items.forEach(item => {
         tableHTML += '<tr>';
         headers.forEach(header => {
-            tableHTML += `<td>${item[header] !== null && item[header] !== undefined ? item[header] : ''}</td>`;
+            let value = item[header];
+            if (typeof value === 'object') value = JSON.stringify(value);
+            tableHTML += `<td>${value !== undefined && value !== null ? value : ''}</td>`;
         });
         tableHTML += '</tr>';
     });
@@ -139,6 +158,7 @@ function createTable(data) {
 
     return tableHTML;
 }
+
 
 
 function formatHeader(header) {
@@ -279,7 +299,7 @@ async function createRepair() {
     try {
         console.log('Sending repair request with orders:', { orders });
         
-        const data = await postAPI('/add_repair', { orders });
+        const data = await postAPI('/log_repair', { orders });
         console.log('Repair request successful:', data);
         showResponse(data);
         
@@ -331,7 +351,7 @@ async function createOrder() {
     try {
         console.log('Sending order request with orders:', { orders });
         
-        const data = await postAPI('/add_order', { orders });
+        const data = await postAPI('/log_order', { orders });
         console.log('Order request successful:', data);
         showResponse(data);
         
@@ -405,60 +425,12 @@ async function submitInventoryForm(event) {
     console.log('Sending inventory payload:', JSON.stringify(payload, null, 2));
 
     try {
-        const response = await fetch('/log_inventory', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
-
-        // Log raw response details
-        console.log('Response status:', response.status);
-        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-
-        // Check response content type
-        const contentType = response.headers.get('content-type');
-        console.log('Content-Type:', contentType);
-
-        // Check response body before parsing
-        const responseText = await response.text();
-        console.log('Response body:', responseText);
-
-        // Handle empty response
-        if (!responseText) {
-            if (response.ok) {
-                alert(`Успішно оновлено інвентар. Додано/оновлено: ${id}`);
-                clearInventoryForm();
-                return;
-            }
-            throw new Error('Порожня відповідь від сервера');
-        }
-
-        // Try to parse JSON
-        let result;
-        try {
-            result = JSON.parse(responseText);
-        } catch (parseError) {
-            console.error('JSON parsing error:', parseError);
-            throw new Error(`Помилка парсингу відповіді: ${responseText}`);
-        }
-
-        // Check for successful response
-        if (!response.ok) {
-            throw new Error(result.detail || `HTTP error! status: ${response.status}`);
-        }
-
-        // Success scenario
-        console.log('Parsed result:', result);
+        const result = await postAPI('/log_inventory', payload);
+        console.log('Received result:', result);
         alert(`Успішно оновлено інвентар. Додано/оновлено: ${id}`);
         clearInventoryForm();
-
     } catch (error) {
-        console.error('Detailed error submitting inventory:', error);
-        
-        // More informative error handling
+        console.error('Error submitting inventory:', error);
         if (error instanceof TypeError) {
             alert(`Мережева помилка: ${error.message}`);
         } else {
