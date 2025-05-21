@@ -1,7 +1,7 @@
 // ======================= CONFIGURATION ============================
 const API_URL = 'http://localhost:5010';
-const REP_URL = 'http://localhost:8590';
-const OR_URL = 'http://localhost:8700';
+const AUTH_URL = 'http://localhost:5011';
+
 let token = localStorage.getItem('token') || '';
 
 const headers = {
@@ -39,7 +39,7 @@ async function login() {
     
     try {
         // send POST request to api gateway
-        const data = await postAPI('/auth/login', { login, password });
+        const data = await postAUTH('/auth/login', { login, password });
         token = data.token; // store token data (here will be JWT)
         localStorage.setItem('token', token);
         updateAuthStatus(); // update authentification status
@@ -68,7 +68,7 @@ async function register() {
     
     try {
         // send POST request to api gateway
-        const data = await postAPI('/auth/register', { login, password });
+        const data = await postAUTH('/auth/register', { login, password });
         showResponse('Успішно зареєстровано. Тепер можете увійти.');
     } catch (error) {
         showResponse(`Помилка реєстрації: ${error.message}`, true);
@@ -233,6 +233,23 @@ async function postAPI(endpoint, data) {
     }
 }
 
+async function postAUTH(endpoint, body) {
+    const url = `${AUTH_URL}${endpoint}`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || 'Невідома помилка');
+    }
+
+    return await response.json();
+}
 // ================== REPAIRS ==============================
 async function getRepairs() {
     console.log('getRepairs function called');

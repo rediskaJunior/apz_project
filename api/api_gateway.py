@@ -10,7 +10,9 @@ import hazelcast
 import os, sys
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
-
+import random
+from typing import Optional
+from fastapi import Depends, Header
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from shared.consul_utils import register_service, deregister_service, fetch_instances, get_consul_kv
@@ -27,16 +29,21 @@ class APIService:
         self.repairs_service_instances = []
         self.order_parts_service_instances = []
 
+        self.auth_service_instances = []
+
     async def fetch_service_addresses(self):
         self.inventory_service_instances = await fetch_instances("inventory-service")
         self.orders_service_instances = await fetch_instances("orders-service")
         self.repairs_service_instances = await fetch_instances("repair-service")
         self.order_parts_service_instances = await fetch_instances("order-parts-service")
 
+        self.auth_service_instances = await fetch_instances("auth-service")
+
         print(self.inventory_service_instances)
         print(self.orders_service_instances)
         print(self.repairs_service_instances)
         print(self.order_parts_service_instances)
+        print(self.auth_service_instances)
     
     async def get_alive_instance(self, instances):
         for instance in instances:
@@ -62,6 +69,8 @@ class APIService:
             instances = self.repairs_service_instances
         elif service_name == "order-parts":
             instances = self.order_parts_service_instances
+        elif service_name == "auth":  # Додано обробку для сервісу автентифікації
+            instances = self.auth_service_instances
         else:
             raise HTTPException(status_code=400, detail="Unknown service")
 
@@ -81,7 +90,31 @@ class APIService:
             response = await client.request(method, url, headers=headers, content=body)
 
         return response.json() if 'application/json' in response.headers.get("content-type", "") else response.text
+    
 
+    async def validate_token(self, authorization: str):
+        if not authorization:
+            return None
+            
+        token = authorization.replace("Bearer ", "")
+        
+        if not self.auth_service_instances:
+            await self.fetch_service_addresses()
+            
+        instance_url = await self.get_alive_instance(self.auth_service_instances)
+        
+        headers = {"Authorization": f"Bearer {token}"}
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            try:
+                full_url = f"{instance_url}/auth/verify"
+                resp = await client.get(full_url, headers=headers)
+                if resp.status_code == 200:
+                    return resp.json()
+                return None
+            except Exception:
+                return None
+            
     def shutdown(self):
         self.hz_client.shutdown()
         print("Hazelcast client shutdown")
@@ -97,6 +130,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def verify_token(authorization: Optional[str] = Header(None)):
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    validation_result = await api_service.validate_token(authorization)
+    if not validation_result:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    return validation_result.get("user")
 
 # -------------- DEFAULT ENDPOINTS ---------------
 @app.on_event("startup")
@@ -121,41 +173,41 @@ async def health_check():
 
 # -------------- ORDER ENDPOINTS ---------------
 @app.post("/log_order")
-async def log_order(request: Request):
+async def log_order(request: Request, user=Depends(verify_token)):
     return await api_service.proxy_request("orders", "POST", "/log_order", request)
 
 @app.get("/orders")
-async def get_orders(request: Request):
+async def get_orders(request: Request, user=Depends(verify_token)):
     return await api_service.proxy_request("orders", "GET", "/orders", request)
 
 @app.get("/orders/{order_id}")
-async def get_order(order_id: str, request: Request):
+async def get_order(order_id: str, request: Request, user=Depends(verify_token)):
     return await api_service.proxy_request("orders", "GET", f"/orders/{order_id}", request)
 
 # -------------- REPAIR ENDPOINTS ---------------
 @app.post("/log_repair")
-async def log_repair(request: Request):
+async def log_repair(request: Request, user=Depends(verify_token)):
     return await api_service.proxy_request("repairs", "POST", "/log_repair", request)
 
 @app.get("/repairs")
-async def get_repairs(request: Request):
+async def get_repairs(request: Request, user=Depends(verify_token)):
     return await api_service.proxy_request("repairs", "GET", "/repairs", request)
 
 @app.get("/repairs/{repair_id}")
-async def get_repair(repair_id: str, request: Request):
+async def get_repair(repair_id: str, request: Request, user=Depends(verify_token)):
     return await api_service.proxy_request("repairs", "GET", f"/repairs/{repair_id}", request)
 
 # -------------- INVENTORY ENDPOINTS ---------------
 @app.post("/log_inventory")
-async def log_inventory(request: Request):
+async def log_inventory(request: Request, user=Depends(verify_token)):
     return await api_service.proxy_request("inventory", "POST", "/log_inventory", request)
 
 @app.get("/inventory")
-async def get_inventory(request: Request):
+async def get_inventory(request: Request, user=Depends(verify_token)):
     return await api_service.proxy_request("inventory", "GET", "/inventory", request)
 
 @app.get("/inventory/{product_id}")
-async def get_inventory_item(product_id: str, request: Request):
+async def get_inventory_item(product_id: str, request: Request, user=Depends(verify_token)):
     return await api_service.proxy_request("inventory", "GET", f"/inventory/{product_id}", request)
 
 # -------------- ORDER PARTS ENDPOINTS ---------------

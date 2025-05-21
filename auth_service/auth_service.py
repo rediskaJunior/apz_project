@@ -180,15 +180,21 @@ async def login(user: User):
     )
     return {"token": access_token, "token_type": "bearer"}
 
+@app.get("/auth/verify", response_model=Dict)
+async def verify_token(token: str = Depends(oauth2_scheme)):
+    user = await auth_service.get_current_user(token)
+    return {"login": user.login, "user_id": user.user_id}
+
 # -------------- STARTUP ---------------
 
 if __name__ == "__main__":
 
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8591)
+    parser.add_argument("--port", type=int, default=5011)
     args = parser.parse_args()
 
     os.environ["APP_PORT"] = str(args.port)
 
     uvicorn.run("auth_service:app", host="0.0.0.0", port=args.port, reload=False)
+    input("\nНатисни Enter, щоб вийти...")
